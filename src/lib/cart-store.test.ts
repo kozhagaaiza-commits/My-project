@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  EMPTY_CART, acknowledgePrices, addItem, cartCount, emptyCart, maxQuantityMessage, parseStoredCart, plural,
+  EMPTY_CART, acknowledgePrices, addItem, cartCount, commitAdd, emptyCart, maxQuantityMessage, parseStoredCart, plural,
   qtyReducedMessage, reconcileCart, removeItem, replaceWith, restoreItem, serializeCart, setQuantity, validationKey,
   type Cart, type CartItem,
 } from "@/lib/cart-store";
@@ -69,6 +69,25 @@ describe("parseStoredCart (Edge Case 17)", () => {
     const r = parseStoredCart(JSON.stringify({ kind: "weird", items: [{ product_id: id(1), quantity: 1, price_seen: 1 }], updated_at: "" }));
     assert.equal(r.cart.kind, "stock");
     assert.equal(r.dirty, true);
+  });
+  it("product_id принимается только валидным UUID; смесь валидных и мусорных — валидные сохраняются", () => {
+    const raw = JSON.stringify({
+      kind: "stock",
+      items: [
+        { product_id: "abc", quantity: 1, price_seen: 100 },
+        { product_id: id(1), quantity: 1, price_seen: 100 },
+        { product_id: "20000000-0000-4000-8000-00000000000", quantity: 1, price_seen: 100 },
+        { product_id: "not-a-uuid-at-all-not-a-uuid-at-all-1234", quantity: 1, price_seen: 100 },
+        { product_id: id(2), quantity: 2, price_seen: 200, type: "wheel_set" },
+      ],
+      updated_at: "x",
+    });
+    const r = parseStoredCart(raw);
+    assert.deepEqual(r.cart.items.map((i) => i.product_id), [id(1), id(2)]);
+    assert.equal(r.dirty, true);
+    const onlyBad = parseStoredCart(JSON.stringify({ kind: "stock", items: [{ product_id: "abc", quantity: 1, price_seen: 1 }], updated_at: "" }));
+    assert.equal(onlyBad.cart.items.length, 0);
+    assert.equal(onlyBad.dirty, true);
   });
   it("serialize → parse возвращает ту же корзину", () => {
     const cart = withItems("stock", [wheel(1, 2), wheel(2)]);
@@ -229,5 +248,41 @@ describe("тексты и ключи", () => {
     assert.equal(qtyReducedMessage(2, "wheel_set"), "Доступно только 2 комплекта, количество уменьшено");
     assert.equal(maxQuantityMessage(2, "wheel_set"), "Максимум 2 комплекта одного диска в заказе");
     assert.equal(maxQuantityMessage(4, "carbon_part"), "Максимум 4 штуки одной детали в заказе");
+  });
+});
+
+describe("commitAdd: запись после validate поверх свежей корзины", () => {
+  const input = (item: CartItem) => ({ item, kind: item.type === "carbon_part" ? ("preorder" as const) : ("stock" as const) });
+  it("правки, сделанные за время запроса, не затираются", () => {
+    // Запрос ушёл при корзине [диск 1]; пока он шёл, в другой вкладке добавили диск 2 и удалили диск 1.
+    const fresh = withItems("stock", [wheel(2, 2)]);
+    const r = commitAdd(fresh, input(wheel(3)), line({ product_id: id(3), unit_price: 5 }), validation([line({ product_id: id(3), unit_price: 5 })]), NOW);
+    assert.equal(r.status, "added");
+    assert.deepEqual(r.cart.items.map((i) => [i.product_id, i.quantity]), [[id(2), 2], [id(3), 1]]);
+    assert.equal(r.cart.items[1].price_seen, 5);
+  });
+  it("за время запроса корзина стала другого kind → mixed_kind, корзина не меняется", () => {
+    const fresh = withItems("preorder", [carbon(1)]);
+    const r = commitAdd(fresh, input(wheel(1)), line({ product_id: id(1) }), validation([line({ product_id: id(1) })]), NOW);
+    assert.equal(r.status, "mixed_kind");
+    assert.equal(r.cart, fresh);
+  });
+  it("корзина заполнилась до 10 позиций → too_many_lines", () => {
+    const fresh = withItems("preorder", Array.from({ length: 10 }, (_, i) => carbon(i + 1)));
+    const r = commitAdd(fresh, input(carbon(11)), line({ product_id: id(111) }), validation([]), NOW);
+    assert.equal(r.status, "too_many_lines");
+    assert.equal(r.cart, fresh);
+  });
+  it("qty_reduced из ответа применяется к добавленной позиции; повторное добавление суммируется", () => {
+    const fresh = withItems("stock", [wheel(1, 1)]);
+    const l = line({ product_id: id(1), quantity: 1, available_qty: 1, max_quantity: 1, problem: "qty_reduced" });
+    const r = commitAdd(fresh, input(wheel(1)), l, validation([l]), NOW);
+    assert.equal(r.cart.items[0].quantity, 1);
+    assert.equal(r.reduced.length, 1);
+  });
+  it("«Заменить корзину»: base = пустая корзина", () => {
+    const r = commitAdd(emptyCart(NOW), input(carbon(1)), line({ product_id: id(101) }), validation([line({ product_id: id(101) })]), NOW);
+    assert.equal(r.cart.kind, "preorder");
+    assert.equal(r.cart.items.length, 1);
   });
 });

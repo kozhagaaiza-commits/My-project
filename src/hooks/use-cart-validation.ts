@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { readCart, useCart, writeCart } from "@/hooks/use-cart";
-import { validateCart } from "@/lib/cart-api";
-import { qtyReducedMessage, reconcileCart, validationKey } from "@/lib/cart-store";
+import { isCorruptedCartResponse, validateCart } from "@/lib/cart-api";
+import { EMPTY_CART, qtyReducedMessage, reconcileCart, validationKey } from "@/lib/cart-store";
 import type { CartValidation } from "@/types/cart";
 
 export const QUANTITY_DEBOUNCE_MS = 400;
@@ -52,6 +52,12 @@ export function useCartValidation(): CartValidationState {
       if (items.length === 0) return;
       const result = await validateCart(items, { signal: controller.signal });
       if (controller.signal.aborted) return;
+      if (isCorruptedCartResponse(result)) {
+        // Сервер отверг состав корзины (400): повреждённые данные — очищаем, а не показываем вечный «Повторить».
+        writeCart(EMPTY_CART);
+        toast("Корзина повреждена и очищена", { id: "cart-corrupted" });
+        return;
+      }
       if (!result.ok) {
         setSettled((prev) => ({ key, failed: true, data: prev?.data ?? null }));
         return;

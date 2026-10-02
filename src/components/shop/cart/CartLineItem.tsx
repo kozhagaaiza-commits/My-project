@@ -33,7 +33,7 @@ export function CartLineItem({ row, pricesLoading, refreshing, onQuantity, onRem
   const slug = line?.slug || item.slug;
   const cover = line?.cover_image_url || null;
   const max = line?.max_quantity && line.max_quantity > 0 ? line.max_quantity : maxQuantityFor(item.type);
-  const priceChanged = line !== null && !unavailable && line.unit_price !== item.price_seen;
+  const priceChanged = line !== null && !unavailable && !mixed && line.unit_price !== item.price_seen;
   const unit = item.type === "carbon_part" ? "шт." : "компл.";
 
   return (
@@ -87,7 +87,7 @@ export function CartLineItem({ row, pricesLoading, refreshing, onQuantity, onRem
           />
           {pricesLoading ? (
             <Skeleton className="h-5 w-20" />
-          ) : line && !unavailable ? (
+          ) : line && !unavailable && !mixed ? (
             <p className={cn("text-sm font-semibold tabular-nums", refreshing && "opacity-50")} aria-busy={refreshing}>
               {line.line_total_formatted}
             </p>

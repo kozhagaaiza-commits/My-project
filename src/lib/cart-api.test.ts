@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { validateCart } from "@/lib/cart-api";
+import { isCorruptedCartResponse, validateCart } from "@/lib/cart-api";
 
 const items = [{ product_id: "20000000-0000-4000-8000-000000000001", quantity: 1 }];
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -34,5 +34,17 @@ describe("validateCart (клиент POST /api/cart/validate)", () => {
       fetchImpl: (_url, init) => new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
     });
     assert.deepEqual(res, { ok: false, kind: "network" });
+  });
+});
+
+describe("isCorruptedCartResponse", () => {
+  it("400 VALIDATION_ERROR — повреждённая корзина; прочие ошибки — нет", async () => {
+    const bad = await validateCart(items, { fetchImpl: async () => json({ error: { code: "VALIDATION_ERROR", message: "Проверьте корзину" } }, 400) });
+    assert.equal(isCorruptedCartResponse(bad), true);
+    const rate = await validateCart(items, { fetchImpl: async () => json({ error: { code: "RATE_LIMITED", message: "x" } }, 429) });
+    assert.equal(isCorruptedCartResponse(rate), false);
+    const forbidden = await validateCart(items, { fetchImpl: async () => json({ error: { code: "FORBIDDEN", message: "x" } }, 403) });
+    assert.equal(isCorruptedCartResponse(forbidden), false);
+    assert.equal(isCorruptedCartResponse({ ok: false, kind: "network" }), false);
   });
 });

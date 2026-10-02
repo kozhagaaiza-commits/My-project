@@ -1,13 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
+import { addDialogReducer } from "@/hooks/add-dialog-state";
 import { readCart, writeCart } from "@/hooks/use-cart";
 import { setCartSheetOpen } from "@/hooks/use-cart-sheet";
 import { reachGoal } from "@/lib/analytics";
 import { CART_CHECK_FAILED, validateCart } from "@/lib/cart-api";
 import {
-  addItem, maxQuantityMessage, qtyReducedMessage, reconcileCart, replaceWith, type AddResult, type Cart,
+  addItem, commitAdd, emptyCart, maxQuantityMessage, qtyReducedMessage, type AddInput,
 } from "@/lib/cart-store";
 import type { CartKind } from "@/types/cart";
 import type { ProductType } from "@/types/catalog";
@@ -26,8 +27,6 @@ export interface AddToCartProduct {
   fits: boolean | null;
 }
 
-export type AddDialog = "misfit" | "mixed" | null;
-
 export const LAST_SET_BOOKED = "Последний комплект только что забронирован. Проверьте через 30 минут";
 const MIXED_KIND = "Детали под заказ и диски из наличия оформляются разными заказами";
 
@@ -42,15 +41,17 @@ interface Options {
  */
 export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) {
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState<AddDialog>(null);
+  const [dialog, dispatch] = useReducer(addDialogReducer, null);
   const inFlight = useRef(false);
   const wanted = useRef(1);
 
-  const finish = async (candidate: AddResult) => {
+  /** validate по составу корзины с новой позицией, затем запись поверх СВЕЖЕЙ корзины. */
+  const finish = async (input: AddInput, replace: boolean) => {
     inFlight.current = true;
     setBusy(true);
     try {
-      const res = await validateCart(candidate.cart.items);
+      const requested = replace ? addItem(emptyCart(), input).cart : addItem(readCart(), input).cart;
+      const res = await validateCart(requested.items);
       if (!res.ok) {
         toast.error(res.kind === "api" ? res.message : CART_CHECK_FAILED, { id: "add-to-cart-error" });
         return;
@@ -69,18 +70,22 @@ export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) 
         toast.error(MIXED_KIND, { id: "add-to-cart-error" });
         return;
       }
-      // Количество — по ответу сервера (qty_reduced), цена, которую видит покупатель, — из ответа.
-      const { cart: reconciled, reduced } = reconcileCart(candidate.cart, res.data);
-      const cart: Cart = {
-        ...reconciled,
-        items: reconciled.items.map((i) => (i.product_id === product.id ? { ...i, price_seen: line.unit_price } : i)),
-      };
-      writeCart(cart);
+      // Корзина могла измениться за время запроса (другая вкладка, Sheet) — добавляем поверх свежей.
+      const done = commitAdd(replace ? emptyCart() : readCart(), input, line, res.data);
+      if (done.status === "mixed_kind") {
+        dispatch({ type: "open", which: "mixed" });
+        return;
+      }
+      if (done.status === "too_many_lines") {
+        toast("В заказе не больше 10 позиций", { id: "add-to-cart-max" });
+        return;
+      }
+      writeCart(done.cart);
       reachGoal("add_to_cart");
       setCartSheetOpen(true);
-      reduced.forEach((r) => toast(qtyReducedMessage(r.quantity, r.type), { id: `qty-reduced-${r.product_id}` }));
-      if (reduced.length === 0 && candidate.status === "limited") {
-        toast(maxQuantityMessage(candidate.max, product.type), { id: "add-to-cart-max" });
+      done.reduced.forEach((r) => toast(qtyReducedMessage(r.quantity, r.type), { id: `qty-reduced-${r.product_id}` }));
+      if (done.reduced.length === 0 && done.status === "limited") {
+        toast(maxQuantityMessage(done.max, product.type), { id: "add-to-cart-max" });
       }
     } finally {
       inFlight.current = false;
@@ -89,24 +94,26 @@ export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) 
   };
 
   const proceed = async (replace: boolean) => {
-    const item = {
-      product_id: product.id, quantity: wanted.current, price_seen: product.price,
-      title: product.title, slug: product.slug, type: product.type, specs_short: product.specs_short ?? null,
+    const input: AddInput = {
+      kind: product.kind,
+      item: {
+        product_id: product.id, quantity: wanted.current, price_seen: product.price,
+        title: product.title, slug: product.slug, type: product.type, specs_short: product.specs_short ?? null,
+      },
     };
     if (replace) {
-      const cart = replaceWith(product.kind, [item]);
-      await finish({ status: "added", cart, quantity: item.quantity, max: item.quantity, unchanged: false });
+      await finish(input, true);
       return;
     }
-    const result = addItem(readCart(), { item, kind: product.kind });
+    const result = addItem(readCart(), input);
     if (result.status === "mixed_kind") {
-      setDialog("mixed");
+      dispatch({ type: "open", which: "mixed" });
     } else if (result.status === "too_many_lines") {
       toast("В заказе не больше 10 позиций", { id: "add-to-cart-max" });
     } else if (result.status === "limited" && result.unchanged) {
       toast(maxQuantityMessage(result.max, product.type), { id: "add-to-cart-max" });
     } else {
-      await finish(result);
+      await finish(input, false);
     }
   };
 
@@ -114,19 +121,22 @@ export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) 
   const request = (quantity: number) => {
     if (inFlight.current) return;
     wanted.current = quantity;
-    if (product.fits === false) setDialog("misfit");
+    if (product.fits === false) dispatch({ type: "open", which: "misfit" });
     else void proceed(false);
   };
 
   const confirmMisfit = () => {
-    setDialog(null);
+    dispatch({ type: "close", which: "misfit" });
     void proceed(false);
   };
 
   const resolveMixed = (replace: boolean) => {
-    setDialog(null);
+    dispatch({ type: "close", which: "mixed" });
     if (replace) void proceed(true);
   };
 
-  return { busy, dialog, request, confirmMisfit, resolveMixed, closeDialog: () => setDialog(null) };
+  /** Адресное закрытие: onOpenChange(false) от одного диалога не трогает другой. */
+  const closeDialog = (which: "misfit" | "mixed") => dispatch({ type: "close", which });
+
+  return { busy, dialog, request, confirmMisfit, resolveMixed, closeDialog };
 }

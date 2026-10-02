@@ -143,6 +143,23 @@ describe("problem", () => {
     assert.equal(v.subtotal, 13370000);
     assert.equal(v.can_checkout, false);
   });
+  it("mixed_kind при quantity выше лимита (документированное): количество сжимается до max_quantity, problem остаётся mixed_kind", () => {
+    // Корзина под заказ (первый — карбон), диск в наличии с quantity 4 при лимите 2 комплекта (BR-04) и остатке 5.
+    const v = buildCartValidation(
+      [{ product_id: C, quantity: 1 }, { product_id: W, quantity: 4 }], [carbon(), wheel({ available_qty: 5 })], "retail");
+    const i = v.items[1];
+    assert.equal(i.problem, "mixed_kind");
+    assert.equal(i.quantity, 2);
+    assert.equal(i.max_quantity, 2);
+    assert.equal(i.line_total, 2 * 13370000); // показывает цену сжатой позиции
+    assert.equal(i.available, true);
+    assert.equal(v.subtotal, 9860000); // в итог не входит
+    assert.equal(v.can_checkout, false);
+    // То же по остатку: остаток 1 < лимита → сжатие до 1.
+    const byStock = buildCartValidation(
+      [{ product_id: C, quantity: 1 }, { product_id: W, quantity: 2 }], [carbon(), wheel({ available_qty: 1 })], "retail");
+    assert.deepEqual([byStock.items[1].problem, byStock.items[1].quantity, byStock.items[1].max_quantity], ["mixed_kind", 1, 1]);
+  });
   it("mixed_kind важнее out_of_stock и qty_reduced", () => {
     const v = buildCartValidation(
       [{ product_id: C, quantity: 1 }, { product_id: W, quantity: 1 }, { product_id: W2, quantity: 4 }],

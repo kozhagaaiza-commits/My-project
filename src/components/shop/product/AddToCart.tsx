@@ -39,7 +39,7 @@ export function AddToCart({ product, quantity, soldOut, onSoldOut, vehicleName, 
         {soldOut ? "Нет в наличии" : "В корзину"}
       </Button>
 
-      <AlertDialog open={add.dialog === "misfit"} onOpenChange={(open) => !open && add.closeDialog()}>
+      <AlertDialog open={add.dialog === "misfit"} onOpenChange={(open) => !open && add.closeDialog("misfit")}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -56,7 +56,7 @@ export function AddToCart({ product, quantity, soldOut, onSoldOut, vehicleName, 
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={add.dialog === "mixed"} onOpenChange={(open) => !open && add.closeDialog()}>
+      <AlertDialog open={add.dialog === "mixed"} onOpenChange={(open) => !open && add.closeDialog("mixed")}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Детали под заказ и диски из наличия оформляются разными заказами</AlertDialogTitle>

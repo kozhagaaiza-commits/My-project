@@ -19,6 +19,13 @@ function isValidation(v: unknown): v is CartValidation {
   return isRecord(v) && Array.isArray(v.items) && typeof v.total === "number" && typeof v.can_checkout === "boolean";
 }
 
+/**
+ * 400 VALIDATION_ERROR на корзину из localStorage: клиент уже отбрасывает мусор при разборе, поэтому такой ответ
+ * означает повреждённую корзину (ручная правка) — повтор не поможет, корзину очищают (Edge Case 17).
+ */
+export const isCorruptedCartResponse = (r: ValidateResult): boolean =>
+  !r.ok && r.kind === "api" && r.status === 400 && r.code === "VALIDATION_ERROR";
+
 export async function validateCart(
   items: CartRequestItem[],
   options: { signal?: AbortSignal; fetchImpl?: FetchLike; timeoutMs?: number } = {},

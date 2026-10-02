@@ -1,6 +1,7 @@
 // Чистая логика корзины (localStorage.fc_cart_v1). Без React и без обращения к window — тестируется node:test.
 // Деньги — целые копейки. Edge Case 17: повреждённые данные считаются пустой корзиной.
 import { MAX_CARBON_QTY_PER_LINE, MAX_LINES_PER_ORDER, MAX_WHEEL_SETS_PER_LINE } from "@/lib/config";
+import { uuid } from "@/lib/schemas/common";
 import type { CartKind, CartValidateItem, CartValidation, StoredCart } from "@/types/cart";
 import type { ProductType } from "@/types/catalog";
 
@@ -40,7 +41,8 @@ const isPositiveInt = (v: unknown): v is number => typeof v === "number" && Numb
 function parseItem(raw: unknown): CartItem | null {
   if (!isRecord(raw)) return null;
   const { product_id, quantity, price_seen, title, slug, specs_short, type } = raw;
-  if (typeof product_id !== "string" || product_id.length === 0 || product_id.length > 64) return null;
+  // Не-UUID id сервер отклонил бы целиком (400) — такую позицию считаем повреждённой.
+  if (typeof product_id !== "string" || !uuid.safeParse(product_id).success) return null;
   if (!isPositiveInt(quantity)) return null;
   if (typeof price_seen !== "number" || !Number.isSafeInteger(price_seen) || price_seen < 0) return null;
   const itemType: ProductType | undefined = type === "wheel_set" || type === "carbon_part" ? type : undefined;
@@ -146,6 +148,31 @@ export function addItem(cart: Cart, { item, kind }: AddInput, now: Date = new Da
     max,
     unchanged: existing !== undefined && existing.quantity === quantity,
   };
+}
+
+export interface CommitAdd {
+  /** added / limited — корзину можно записывать; mixed_kind / too_many_lines — за время запроса корзина изменилась. */
+  status: AddStatus;
+  cart: Cart;
+  reduced: ReducedLine[];
+  max: number;
+}
+
+/**
+ * Запись добавления ПОСЛЕ ответа validate: позиция добавляется поверх свежей корзины (правки из другой вкладки
+ * или Sheet за время запроса не теряются), количество — по ответу, price_seen — актуальная цена из ответа.
+ * Для «Заменить корзину» base = emptyCart().
+ */
+export function commitAdd(
+  base: Cart, input: AddInput, line: CartValidateItem, validation: CartValidation, now: Date = new Date(),
+): CommitAdd {
+  const added = addItem(base, input, now);
+  if (added.status === "mixed_kind" || added.status === "too_many_lines") {
+    return { status: added.status, cart: base, reduced: [], max: added.max };
+  }
+  const { cart, reduced } = reconcileCart(added.cart, validation, now);
+  const items = cart.items.map((i) => (i.product_id === input.item.product_id ? { ...i, price_seen: line.unit_price } : i));
+  return { status: added.status, cart: { ...cart, items }, reduced, max: added.max };
 }
 
 /** Новая корзина из одной позиции — «Заменить корзину». */
