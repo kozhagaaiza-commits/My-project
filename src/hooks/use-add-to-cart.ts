@@ -45,7 +45,6 @@ export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) 
   const [dialog, setDialog] = useState<AddDialog>(null);
   const inFlight = useRef(false);
   const wanted = useRef(1);
-  const misfitConfirmed = useRef(false);
 
   const finish = async (candidate: AddResult) => {
     inFlight.current = true;
@@ -100,26 +99,27 @@ export function useAddToCart(product: AddToCartProduct, { onSoldOut }: Options) 
       return;
     }
     const result = addItem(readCart(), { item, kind: product.kind });
-    if (result.status === "mixed_kind") return setDialog("mixed");
-    if (result.status === "too_many_lines") return void toast("В заказе не больше 10 позиций", { id: "add-to-cart-max" });
-    if (result.status === "limited" && result.unchanged) {
-      return void toast(maxQuantityMessage(result.max, product.type), { id: "add-to-cart-max" });
+    if (result.status === "mixed_kind") {
+      setDialog("mixed");
+    } else if (result.status === "too_many_lines") {
+      toast("В заказе не больше 10 позиций", { id: "add-to-cart-max" });
+    } else if (result.status === "limited" && result.unchanged) {
+      toast(maxQuantityMessage(result.max, product.type), { id: "add-to-cart-max" });
+    } else {
+      await finish(result);
     }
-    await finish(result);
   };
 
   /** Нажатие «В корзину» с выбранным количеством. */
   const request = (quantity: number) => {
     if (inFlight.current) return;
     wanted.current = quantity;
-    misfitConfirmed.current = false;
-    if (product.fits === false) return setDialog("misfit");
-    void proceed(false);
+    if (product.fits === false) setDialog("misfit");
+    else void proceed(false);
   };
 
   const confirmMisfit = () => {
     setDialog(null);
-    misfitConfirmed.current = true;
     void proceed(false);
   };
 
