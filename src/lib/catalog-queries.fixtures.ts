@@ -205,4 +205,8 @@ export const fixtureQueries: CatalogQueries = {
   },
   listProducts: async (query, ctx) => listProducts(query, ctx),
   getProductBySlug: async (slug, vehicleId, ctx) => getProductBySlug(slug, vehicleId, ctx),
+  // День 3: пишет frontend-developer (см. src/types/cart.ts).
+  getCartProducts: async () => {
+    throw new Error("not implemented");
+  },
 };

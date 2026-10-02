@@ -101,4 +101,9 @@ export const realQueries: CatalogQueries = {
       }),
     };
   },
+
+  // День 3: пишет backend-engineer (см. src/types/cart.ts).
+  async getCartProducts() {
+    throw new Error("not implemented");
+  },
 };

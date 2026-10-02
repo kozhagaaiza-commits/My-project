@@ -1,4 +1,5 @@
 import "server-only";
+import type { CartProduct } from "@/types/cart";
 import type {
   CatalogContext, ListProductsResult, ProductDetailResult, ProductsQuery, VehicleDetail, VehicleOption,
 } from "@/types/catalog";
@@ -18,6 +19,8 @@ export interface CatalogQueries {
   getVehicle(id: string): Promise<VehicleDetail | null>;
   listProducts(query: ProductsQuery, ctx: CatalogContext): Promise<ListProductsResult>;
   getProductBySlug(slug: string, vehicleId: string | undefined, ctx: CatalogContext): Promise<ProductDetailResult>;
+  /** Данные active-товаров для проверки корзины (порядок не гарантируется; неизвестные id пропускаются). */
+  getCartProducts(ids: string[], ctx: CatalogContext): Promise<CartProduct[]>;
 }
 
 // Условие записано прямо в выражении: в production-сборке process.env.NODE_ENV заменяется на "production",
@@ -34,3 +37,4 @@ export const resolveVehicle: CatalogQueries["resolveVehicle"] = async (make, mod
 export const getVehicle: CatalogQueries["getVehicle"] = async (id) => (await impl()).getVehicle(id);
 export const listProducts: CatalogQueries["listProducts"] = async (query, ctx) => (await impl()).listProducts(query, ctx);
 export const getProductBySlug: CatalogQueries["getProductBySlug"] = async (slug, vehicleId, ctx) => (await impl()).getProductBySlug(slug, vehicleId, ctx);
+export const getCartProducts: CatalogQueries["getCartProducts"] = async (ids, ctx) => (await impl()).getCartProducts(ids, ctx);
