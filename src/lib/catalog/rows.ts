@@ -76,6 +76,10 @@ export type ProductRow = z.infer<typeof productRow>;
 /** Строка после toPublicProduct(): та же форма, но price_atelier/certifications уже отфильтрованы. */
 export type PublicProductRow = ProductRow;
 
+/** Строка списка каталога: LIST_PRODUCT_COLUMNS (без description — экономия объёма ответа PostgREST). */
+export const listProductRow = productRow.omit({ description: true });
+export type ListProductRow = z.infer<typeof listProductRow>;
+
 export const imageRow = z.object({
   product_id: z.string(),
   storage_path: z.string(),
@@ -87,9 +91,9 @@ export type ImageRow = z.infer<typeof imageRow>;
 export const fitRow = z.object({ product_id: z.string(), needs_hub_rings: z.boolean() });
 export type FitRow = z.infer<typeof fitRow>;
 
-export const reservationItemRow = z.object({ product_id: z.string().nullable(), quantity: z.number().int() });
-export type ReservationItemRow = z.infer<typeof reservationItemRow>;
+/** Строка rpc("reserved_qty_map"): брони pending_payment с reserved_until > now, сгруппированные по товару. */
+export const reservedQtyRow = z.object({ product_id: z.string(), reserved: z.number().int() });
+export type ReservedQtyRow = z.infer<typeof reservedQtyRow>;
 
-export const idRow = z.object({ id: z.string() });
 export const productIdRow = z.object({ product_id: z.string() });
 export const vehicleIdRow = z.object({ vehicle_id: z.string() });

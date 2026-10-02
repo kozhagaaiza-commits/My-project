@@ -1,20 +1,25 @@
 import "server-only";
 import { toPublicProduct, vehicleLabel } from "@/lib/catalog";
 import {
-  db, rpcFindWheels, selectActiveProducts, selectActiveVehicle, selectActiveVehicles, selectActiveVehiclesByIds,
-  selectImages, selectProductBySlug, selectProductIdsForVehicle, selectReservedItems, selectVehicleIdsForProduct,
+  rpcFindWheels, rpcReservedQtyMap, selectActiveProducts, selectActiveVehicle, selectActiveVehicles,
+  selectActiveVehiclesByIds, selectImages, selectProductBySlug, selectProductIdsForVehicle, selectVehicleIdsForProduct,
+  type Db,
 } from "@/lib/catalog/db";
 import { buildProductDetail } from "@/lib/catalog/detail";
-import { applyFilters, paginate, pickCovers, sortEntries, sumReserved, toEntries, toListItem } from "@/lib/catalog/listing";
+import { applyFilters, paginate, pickCovers, sortEntries, toEntries, toListItem } from "@/lib/catalog/listing";
 import {
   currentYearMoscow, distinctMakes, distinctModels, generationsForYear, toVehicleDetail, yearsForModel,
 } from "@/lib/catalog/vehicles";
 import { CATALOG_PAGE_SIZE } from "@/lib/config";
 import { env } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { CatalogQueries } from "./catalog-queries";
 
 // Реальная реализация контракта каталога: Supabase (service-role, явные колонки) → чистые функции
 // из src/lib/catalog/*. Вся бизнес-логика — там; здесь только порядок запросов.
+
+/** Service-role клиент на вызов (Блок 5.10: публичное чтение каталога). */
+const db = (): Db => createAdminClient();
 
 export const realQueries: CatalogQueries = {
   async listMakes() {
@@ -54,7 +59,7 @@ export const realQueries: CatalogQueries = {
     const products = (await selectActiveProducts(c, query.type))
       .filter((p) => fits === null || fits.has(p.id))
       .map((p) => toPublicProduct(p, ctx));
-    const reserved = sumReserved(await selectReservedItems(c, products.map((p) => p.id)));
+    const reserved = await rpcReservedQtyMap(c);
 
     const entries = sortEntries(applyFilters(toEntries(products, reserved, fits, vehicle?.id ?? null), query), query.sort);
     const pageEntries = paginate(entries, query.page, CATALOG_PAGE_SIZE);
@@ -74,8 +79,8 @@ export const realQueries: CatalogQueries = {
     if (!row || (row.status !== "active" && !isAdmin)) return { kind: "not_found" };
     const product = toPublicProduct(row, ctx);
 
-    const [reservedItems, images, vehicle, compatibleIds] = await Promise.all([
-      selectReservedItems(c, [product.id]),
+    const [reserved, images, vehicle, compatibleIds] = await Promise.all([
+      rpcReservedQtyMap(c),
       selectImages(c, [product.id]),
       // Неизвестный или неактивный vehicle в карточке — не ошибка: fitment = null.
       vehicleId ? selectActiveVehicle(c, vehicleId) : Promise.resolve(null),
@@ -87,7 +92,7 @@ export const realQueries: CatalogQueries = {
       kind: "ok",
       data: buildProductDetail({
         product,
-        reservedQty: sumReserved(reservedItems).get(product.id) ?? 0,
+        reservedQty: reserved.get(product.id) ?? 0,
         images,
         vehicle,
         compatibleVehicles,

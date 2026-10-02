@@ -8,7 +8,11 @@ export const CATALOG_PATH: Record<ProductType, string> = {
   carbon_part: "/carbon",
 };
 
-const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
+/** Первое значение параметра; пустая строка (`?vehicle=`) = параметра нет. */
+const first = (v: string | string[] | undefined): string | undefined => {
+  const value = Array.isArray(v) ? v[0] : v;
+  return value === "" ? undefined : value;
+};
 
 export interface ParsedCatalogParams {
   query: ProductsQuery;

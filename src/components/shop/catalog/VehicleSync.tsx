@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { clearStoredVehicle, readStoredVehicle } from "@/hooks/use-stored-vehicle";
+import type { ProductType } from "@/types/catalog";
 
 interface VehicleSyncProps {
   /**
@@ -11,9 +12,11 @@ interface VehicleSyncProps {
    * not_found — vehicle из URL не найден/неактивен: toast, очистка fc_vehicle, убрать vehicle из URL (Edge Case 18).
    */
   mode: "apply" | "not_found";
+  /** Тип каталога: на /wheels «…показаны все диски», на /carbon «…показаны все товары» (Блок 3). */
+  type: ProductType;
 }
 
-export function VehicleSync({ mode }: VehicleSyncProps) {
+export function VehicleSync({ mode, type }: VehicleSyncProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -24,7 +27,12 @@ export function VehicleSync({ mode }: VehicleSyncProps) {
 
     if (mode === "not_found") {
       if (stored && stored.id === params.get("vehicle")) clearStoredVehicle();
-      toast("Автомобиль не найден, показаны все диски", { id: "vehicle-not-found" });
+      toast(
+        type === "wheel_set"
+          ? "Автомобиль не найден, показаны все диски"
+          : "Автомобиль не найден, показаны все товары",
+        { id: "vehicle-not-found" },
+      );
       params.delete("vehicle");
     } else {
       if (!stored) return;
@@ -33,7 +41,7 @@ export function VehicleSync({ mode }: VehicleSyncProps) {
     params.delete("page");
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [mode, pathname, router, searchParams]);
+  }, [mode, type, pathname, router, searchParams]);
 
   return null;
 }

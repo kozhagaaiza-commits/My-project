@@ -23,12 +23,14 @@ interface VehicleSelectFieldProps {
   errorText: string;
   onChange: (value: string) => void;
   onRetry: () => void;
+  /** Текст 404 из API: показывается вместо errorText, без кнопки «Повторить». */
+  notice?: string | null;
   large?: boolean;
   className?: string;
 }
 
 export function VehicleSelectField({
-  id, label, placeholder, value, options, status, errorText, onChange, onRetry, large, className,
+  id, label, placeholder, value, options, status, errorText, onChange, onRetry, notice, large, className,
 }: VehicleSelectFieldProps) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
@@ -47,7 +49,12 @@ export function VehicleSelectField({
           ))}
         </SelectContent>
       </Select>
-      {status === "error" && (
+      {notice && (
+        <p role="alert" className="text-sm text-destructive">
+          {notice}
+        </p>
+      )}
+      {status === "error" && !notice && (
         <p role="alert" className="text-sm text-destructive">
           {errorText}{" "}
           <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={onRetry}>

@@ -20,9 +20,12 @@ export interface CatalogQueries {
   getProductBySlug(slug: string, vehicleId: string | undefined, ctx: CatalogContext): Promise<ProductDetailResult>;
 }
 
-const fixturesEnabled = () => process.env.CATALOG_FIXTURES === "1" && process.env.NODE_ENV !== "production";
+// Условие записано прямо в выражении: в production-сборке process.env.NODE_ENV заменяется на "production",
+// левая часть становится false, и бандлер вырезает ветку с import фикстур (они не попадают в .next/server).
 const impl = async (): Promise<CatalogQueries> =>
-  fixturesEnabled() ? (await import("./catalog-queries.fixtures")).fixtureQueries : (await import("./catalog-queries.real")).realQueries;
+  process.env.NODE_ENV !== "production" && process.env.CATALOG_FIXTURES === "1"
+    ? (await import("./catalog-queries.fixtures")).fixtureQueries
+    : (await import("./catalog-queries.real")).realQueries;
 
 export const listMakes: CatalogQueries["listMakes"] = async () => (await impl()).listMakes();
 export const listModels: CatalogQueries["listModels"] = async (make) => (await impl()).listModels(make);

@@ -1575,6 +1575,35 @@ grant select (id, order_id, from_status, to_status, created_at)
 --   grant select on public.order_status_history to anon, authenticated;
 ```
 
+### 2.19 Карта броней reserved_qty_map (миграция 20261002110000)
+
+Файл `supabase/migrations/20261002110000_reserved_qty_map.sql`, выполняется после миграции 2.18. Брони по всем товарам одним вызовом (`product_id → reserved`) для витрины: запросы со списками id в URL упирались в лимит PostgREST (1000 строк). Условие брони совпадает с `reserved_qty()` (2.14). Вызывает только сервер (service-role).
+
+```sql
+-- Условие брони совпадает с reserved_qty() из 2.14 (pending_payment и действующая бронь),
+-- иначе витрина и create_order разойдутся в остатках.
+-- Товары без броней в результат не попадают: для них reserved = 0.
+create or replace function public.reserved_qty_map()
+returns table (product_id uuid, reserved integer)
+language sql stable security definer set search_path = public
+as $$
+  select oi.product_id, sum(oi.quantity)::integer
+  from public.order_items oi
+  join public.orders o on o.id = oi.order_id
+  where oi.product_id is not null
+    and o.status = 'pending_payment'
+    and o.reserved_until > now()
+  group by oi.product_id;
+$$;
+
+-- Остатки читает только сервер (service-role), как и reserved_qty / available_qty.
+revoke execute on function public.reserved_qty_map() from public, anon, authenticated;
+grant execute on function public.reserved_qty_map() to service_role;
+
+comment on function public.reserved_qty_map() is
+  'Брони неоплаченных заказов с действующей бронью по всем товарам: product_id → reserved. Условие как в reserved_qty(). Только service-role.';
+```
+
 ---
 ## БЛОК 3: API Endpoints
 
@@ -3947,7 +3976,7 @@ export function computeAutoPrice(purchaseCostMinor: number, rate: number, multip
 2. Ошибка `Invalid login credentials` → «Неверный email или пароль»; `Email not confirmed` → предложение отправить письмо повторно.
 3. Успех → `router.refresh()` → redirect на `next` или `/account` (admin → `/admin`).
 
-**Сессия:** `@supabase/ssr` хранит сессию в cookies; `src/proxy.ts` обновляет её на каждом запросе к `/account`, `/admin`, `/atelier`, `/checkout`, `/api/*` (кроме `/api/webhooks/*` и `/api/cron/*`). На сервере пользователь всегда определяется через `supabase.auth.getUser()` (проверка токена на сервере Supabase), не через `getSession()`.
+**Сессия:** `@supabase/ssr` хранит сессию в cookies; `src/proxy.ts` обновляет её на каждом запросе к `/account`, `/admin`, `/atelier`, `/checkout`, `/api/*` (кроме `/api/webhooks/*` и `/api/cron/*`), а также на страницах витрины `/`, `/wheels`, `/carbon`, `/product/:path*`, `/cart`, `/orders/:path*` — иначе ателье теряет сессию и цены ателье (BR-10); для гостей без cookie сессии запрос не делает сетевых вызовов (A25). На сервере пользователь всегда определяется через `supabase.auth.getUser()` (проверка токена на сервере Supabase), не через `getSession()`.
 
 **Восстановление пароля:** US-011.
 
@@ -4288,6 +4317,8 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A21 | Права на `reserved_qty`, `available_qty`, `find_wheels_for_vehicle` | `revoke … from public, anon, authenticated` + `grant … to service_role` | Каталог читает только сервер; через `/rest/v1/rpc` anon видел остатки черновиков (ревью, День 1) |
 | A22 | Разбор суммы ЮKassa (`rubStringToKopecks`) | Целочисленный разбор, невалидная строка бросает ошибку | `Math.round(Number(v)*100)` давал NaN/0; NULL в `p_amount` молча пропускал проверку суммы в `mark_order_paid` (найдено ревью, День 1) |
 | A23 | Служебные поля заказов | Скрыты колоночными правами (2.18): покупателю на роли `authenticated` недоступны `admin_note`, `attention_reason`, `needs_attention`, `telegram_chat_id`, `public_token_hash`, `client_request_id`, `order_status_history.note` и `changed_by`; админка читает заказы через service-role после проверки роли | RLS скрывает строки, но не колонки: через PostgREST покупатель читал внутренние заметки своих заказов (ревью, День 2) |
+| A24 | Подсчёт броней для витрины | SQL-функция `reserved_qty_map()` (2.19): брони всех товаров одним вызовом, только service-role | Запросы со списками id в URL упирались в лимит PostgREST 1000 строк и длину URL (ревью, День 2) |
+| A25 | Обновление сессии на витрине | `src/proxy.ts` обновляет сессию также на `/`, `/wheels`, `/carbon`, `/product/:path*`, `/cart`, `/orders/:path*` (5.7) | Иначе ателье теряет сессию и видит розничные цены вместо цен ателье (BR-10); гостям без cookie сессии сетевых вызовов не добавляет (решение оркестратора, День 2) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).

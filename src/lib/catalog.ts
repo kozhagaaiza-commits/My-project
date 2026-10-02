@@ -1,7 +1,7 @@
 import { FEATURE_ATELIER, MOSCOW_DELIVERY_DAYS, REGION_DELIVERY_DAYS } from "@/lib/config";
 import { formatRub } from "@/lib/money";
 import type { Availability, CatalogContext, Construction, ProductImage, SeatType } from "@/types/catalog";
-import type { ProductRow, PublicProductRow, VehicleRow } from "@/lib/catalog/rows";
+import type { ListProductRow, ProductRow, PublicProductRow, VehicleRow } from "@/lib/catalog/rows";
 
 // Чистые функции каталога (Чертёж, Блок 3 «Каталог», US-002, BR-10/BR-13/BR-20).
 // Без обращений к БД и env — тестируются node:test.
@@ -14,6 +14,9 @@ export const PUBLIC_PRODUCT_COLUMNS =
 // purchase_cost, purchase_currency, pricing_mode НЕ входят в список никогда.
 // price_atelier удаляется из ответа функцией toPublicProduct(), если ctx.atelierId === null.
 // certifications заменяются на [], если claims_verified === false.
+
+/** Список каталога: те же публичные колонки без description (карточка остаётся на PUBLIC_PRODUCT_COLUMNS). */
+export const LIST_PRODUCT_COLUMNS = PUBLIC_PRODUCT_COLUMNS.replace(",description,", ",");
 
 // «Конус 60°» и «Кованый моноблок» — из Чертежа; остальные подписи заданы backend-engineer.
 export const SEAT_TYPE_LABELS: Record<SeatType, string> = {
@@ -36,11 +39,15 @@ export const CONSTRUCTION_LABELS: Record<Construction, string> = {
  * даже если строка пришла с лишними колонками. price_atelier → null без одобренного ателье
  * или при FEATURE_ATELIER = false (BR-10, BR-20); certifications → [] без claims_verified (BR-13).
  */
-export function toPublicProduct(row: ProductRow, ctx: CatalogContext, featureAtelier: boolean = FEATURE_ATELIER): PublicProductRow {
+export function toPublicProduct(row: ProductRow, ctx: CatalogContext, featureAtelier?: boolean): ProductRow;
+export function toPublicProduct(row: ListProductRow, ctx: CatalogContext, featureAtelier?: boolean): ListProductRow;
+export function toPublicProduct(
+  row: ListProductRow & { description?: string }, ctx: CatalogContext, featureAtelier: boolean = FEATURE_ATELIER,
+): ListProductRow & { description?: string } {
   const showAtelier = featureAtelier && ctx.atelierId !== null;
-  return {
+  const pub: ListProductRow = {
     id: row.id, type: row.type, slug: row.slug, sku: row.sku, title: row.title,
-    manufacturer: row.manufacturer, description: row.description, status: row.status,
+    manufacturer: row.manufacturer, status: row.status,
     availability_mode: row.availability_mode, stock_qty: row.stock_qty,
     lead_time_min_days: row.lead_time_min_days, lead_time_max_days: row.lead_time_max_days,
     price: row.price, price_atelier: showAtelier ? row.price_atelier : null,
@@ -53,6 +60,7 @@ export function toPublicProduct(row: ProductRow, ctx: CatalogContext, featureAte
     certifications: row.claims_verified ? [...row.certifications] : [],
     claims_verified: row.claims_verified, created_at: row.created_at,
   };
+  return typeof row.description === "string" ? { ...pub, description: row.description } : pub;
 }
 
 export const formatPrice = (kopecks: number | null): string | null => (kopecks === null ? null : formatRub(kopecks));

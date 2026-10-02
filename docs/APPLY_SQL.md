@@ -6,7 +6,8 @@
 - `supabase/migrations/0001_init.sql` — вся схема (таблицы, защита RLS, функции, бакет для фото);
 - `supabase/seed.sql` — справочник автомобилей (13 строк);
 - `supabase/rollback_0001.sql` — откат (нужен только при ошибке, см. шаг 5);
-- `supabase/migrations/20261002100000_orders_column_privileges.sql` — миграция 0002, см. шаг 8.
+- `supabase/migrations/20261002100000_orders_column_privileges.sql` — миграция 0002, см. шаг 8;
+- `supabase/migrations/20261002110000_reserved_qty_map.sql` — миграция 0003, см. шаг 9.
 
 ## 1. Открыть редактор
 Dashboard → проект → **SQL Editor** → **New query**.
@@ -109,6 +110,25 @@ select has_column_privilege('authenticated', 'public.orders', 'status', 'select'
 
 Откат (только по просьбе разработчика) — две команды `grant select …` в конце файла миграции.
 
+## 9. Миграция 0003 (карта броней)
+Функция для витрины: сколько единиц каждого товара забронировано неоплаченными заказами. Выполняется **после** 0002, один раз.
+
+1. **New query** → вставьте всё содержимое `supabase/migrations/20261002110000_reserved_qty_map.sql` → **Run**.
+2. Ожидаемый результат: **Success. No rows returned**. Повторный запуск безопасен.
+3. Проверка:
+
+```sql
+select has_function_privilege('anon', 'public.reserved_qty_map()', 'execute');
+```
+Ожидается: `false`.
+
+```sql
+select count(*) from public.reserved_qty_map();
+```
+Ожидается: `0` (пока нет неоплаченных заказов).
+
+Откат (только по просьбе разработчика): `drop function if exists public.reserved_qty_map();`
+
 ## Для разработчика
-- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте применённые вручную миграции, иначе CLI выполнит их повторно: `npx supabase migration repair --status applied 0001` и `npx supabase migration repair --status applied 20261002100000`.
+- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте применённые вручную миграции, иначе CLI выполнит их повторно: `npx supabase migration repair --status applied 0001` `npx supabase migration repair --status applied 20261002100000` и `npx supabase migration repair --status applied 20261002110000`.
 - Типы: `npx supabase gen types typescript --project-id $PROJECT_REF > src/types/database.ts`.

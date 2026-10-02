@@ -16,6 +16,8 @@ const EMPTY: Selection = { make: "", model: "", year: "", generationId: "" };
 export interface RemoteField<T> {
   status: RemoteStatus;
   items: T[];
+  /** Текст 404 из API (без «Повторить»); null — сетевая ошибка/5xx или нет ошибки. */
+  message: string | null;
   retry: () => void;
 }
 
@@ -38,7 +40,7 @@ export interface VehicleSelectionState {
 const q = encodeURIComponent;
 
 function field<T>(r: ReturnType<typeof useRemoteList<T[]>>): RemoteField<T> {
-  return { status: r.status, items: r.data ?? [], retry: r.retry };
+  return { status: r.status, items: r.data ?? [], message: r.message, retry: r.retry };
 }
 
 export function useVehicleSelection(): VehicleSelectionState {

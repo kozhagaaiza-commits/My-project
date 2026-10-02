@@ -67,6 +67,7 @@ export function VehicleSelector({
         errorText="Не удалось загрузить модели."
         onChange={s.setModel}
         onRetry={s.models.retry}
+        notice={s.models.message}
       />
       <VehicleSelectField
         {...common}
@@ -79,8 +80,9 @@ export function VehicleSelector({
         errorText="Не удалось загрузить годы."
         onChange={s.setYear}
         onRetry={s.years.retry}
+        notice={s.years.message ?? s.generations.message}
       />
-      {(s.needsGeneration || s.generations.status === "error") && (
+      {(s.needsGeneration || (s.generations.status === "error" && !s.generations.message)) && (
         <VehicleSelectField
           {...common}
           id={`${idPrefix}-generation`}

@@ -59,7 +59,7 @@ export async function CatalogView({ type, searchParams }: CatalogViewProps) {
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 md:gap-6 md:px-6 md:py-8">
-      {vehicleMissing ? <VehicleSync mode="not_found" /> : !query.vehicle && <VehicleSync mode="apply" />}
+      {vehicleMissing ? <VehicleSync mode="not_found" type={type} /> : !query.vehicle && <VehicleSync mode="apply" type={type} />}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>

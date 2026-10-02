@@ -2,7 +2,7 @@ import {
   availabilityForList, buildAvailability, buildSpecsShort, formatPrice, toProductImage,
 } from "@/lib/catalog";
 import { formatRub } from "@/lib/money";
-import type { ImageRow, PublicProductRow } from "@/lib/catalog/rows";
+import type { ImageRow, ListProductRow } from "@/lib/catalog/rows";
 import type { Availability, ProductListItem, ProductsQuery } from "@/types/catalog";
 
 // Чистая часть GET /api/products: фильтры, сортировка, пагинация, сборка элементов списка.
@@ -11,14 +11,14 @@ import type { Availability, ProductListItem, ProductsQuery } from "@/types/catal
 // делает в JS. При росте до тысяч позиций — перенести в SQL (view/RPC с available_qty).
 
 export interface CatalogEntry {
-  product: PublicProductRow;
+  product: ListProductRow;
   availability: Availability;
   /** null — vehicle не передан; иначе результат подбора (в списке всегда подходящие). */
   fit: { vehicle_id: string; needs_hub_rings: boolean } | null;
 }
 
 export function toEntries(
-  products: PublicProductRow[],
+  products: ListProductRow[],
   reserved: Map<string, number>,
   fits: Map<string, boolean> | null,
   vehicleId: string | null,
@@ -83,11 +83,4 @@ export function toListItem(e: CatalogEntry, cover: ImageRow | undefined, supabas
     fitment: e.fit === null ? null : { vehicle_id: e.fit.vehicle_id, fits: true, needs_hub_rings: e.fit.needs_hub_rings },
     cover_image: cover ? toProductImage(supabaseUrl, cover, p.title) : null,
   };
-}
-
-/** Сумма брони по товарам (строки order_items действующих броней). */
-export function sumReserved(items: { product_id: string | null; quantity: number }[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const it of items) if (it.product_id) out.set(it.product_id, (out.get(it.product_id) ?? 0) + it.quantity);
-  return out;
 }
