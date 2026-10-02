@@ -503,6 +503,10 @@ create extension if not exists moddatetime with schema extensions;
 -- Номер заказа: FC-26-000001
 create sequence if not exists public.order_number_seq start 1;
 
+-- Тело SQL-функции проверяется при создании, а public.profiles появится только в 2.1:
+-- на время создания этих двух функций проверку тел отключаем.
+set check_function_bodies = off;
+
 -- Роль текущего пользователя. SECURITY DEFINER, чтобы политика на profiles
 -- не вызывала рекурсию RLS при проверке роли.
 create or replace function public.current_role_name()
@@ -518,6 +522,8 @@ language sql stable security definer set search_path = public
 as $$
   select coalesce(public.current_role_name() = 'admin', false);
 $$;
+
+reset check_function_bodies;
 ```
 
 ### 2.1 profiles
@@ -1169,7 +1175,8 @@ begin
 end;
 $$;
 
-revoke execute on function public.check_rate_limit(text, integer, integer) from anon, authenticated;
+revoke execute on function public.check_rate_limit(text, integer, integer) from public, anon, authenticated;
+grant execute on function public.check_rate_limit(text, integer, integer) to service_role;
 ```
 
 ### 2.14 Функции бизнес-логики
@@ -1338,7 +1345,8 @@ begin
 end;
 $$;
 
-revoke execute on function public.create_order(jsonb, jsonb) from anon, authenticated;
+revoke execute on function public.create_order(jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.create_order(jsonb, jsonb) to service_role;
 
 -- Отметка об оплате. Идемпотентна. Вызывается из webhook ЮKassa после повторной проверки платежа.
 -- Возвращает: 'paid' | 'already_paid' | 'paid_needs_attention'
@@ -1406,7 +1414,8 @@ begin
 end;
 $$;
 
-revoke execute on function public.mark_order_paid(uuid, integer) from anon, authenticated;
+revoke execute on function public.mark_order_paid(uuid, integer) from public, anon, authenticated;
+grant execute on function public.mark_order_paid(uuid, integer) to service_role;
 
 -- Отмена неоплаченных заказов с истёкшей бронью. Вызывается cron и лениво при открытии заказа.
 create or replace function public.cancel_expired_orders()
@@ -1428,7 +1437,8 @@ begin
 end;
 $$;
 
-revoke execute on function public.cancel_expired_orders() from anon, authenticated;
+revoke execute on function public.cancel_expired_orders() from public, anon, authenticated;
+grant execute on function public.cancel_expired_orders() to service_role;
 
 -- Возврат товара на склад при возврате денег (kind = 'stock').
 create or replace function public.restock_order(p_order_id uuid)
@@ -1442,7 +1452,8 @@ as $$
   where oi.order_id = p_order_id and oi.product_id = p.id and o.kind = 'stock';
 $$;
 
-revoke execute on function public.restock_order(uuid) from anon, authenticated;
+revoke execute on function public.restock_order(uuid) from public, anon, authenticated;
+grant execute on function public.restock_order(uuid) to service_role;
 ```
 
 ### 2.15 Storage
@@ -4197,6 +4208,8 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A13 | Самовывоз | Нет в MVP | Адрес склада не публикуется |
 | A14 | Счёт для юрлиц | Нет в MVP, ателье платят картой/СБП | Срок 1 неделя |
 | A15 | Уведомление Роскомнадзора | Подаётся до запуска | Идея просила проверить; решено подавать |
+| A16 | SQL блока 2.0: порядок создания функций | `current_role_name` и `is_admin` создаются с `set check_function_bodies = off` | Иначе миграция падает: функция ссылается на `profiles`, которой ещё нет (найдено при проверке на PostgreSQL, День 1) |
+| A17 | Права на служебные SQL-функции | `revoke … from public, anon, authenticated` + `grant … to service_role` | EXECUTE по умолчанию выдан PUBLIC, `revoke` только от anon/authenticated доступа не закрывал: anon вызывал `create_order` (найдено при проверке, День 1) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).
