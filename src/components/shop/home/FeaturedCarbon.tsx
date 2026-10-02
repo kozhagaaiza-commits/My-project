@@ -1,6 +1,6 @@
 import { ProductShelf } from "@/components/shop/home/ProductShelf";
 import { listProducts } from "@/lib/catalog-queries";
-import { getCatalogContext } from "@/lib/catalog-context";
+import { getCatalogContext } from "@/lib/catalog/session";
 import type { ProductListItem } from "@/types/catalog";
 
 async function load(): Promise<ProductListItem[]> {

@@ -51,11 +51,11 @@ export function FilterControls({ type, query, onChange, idPrefix, stacked }: Fil
         value={query.diameter ? String(query.diameter) : "all"}
         onValueChange={(v) => onChange({ diameter: v === "all" ? null : v })}
       >
-        <SelectTrigger aria-label="Диаметр" className={cn("h-10", stacked ? "w-full" : "w-36")}>
+        <SelectTrigger aria-label="Диаметр" className={cn("h-10", stacked ? "w-full" : "w-44")}>
           <SelectValue placeholder="Диаметр" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">Диаметр: любой</SelectItem>
+          <SelectItem value="all">Все диаметры</SelectItem>
           {DIAMETERS.map((d) => (
             <SelectItem key={d} value={String(d)}>
               R{d}

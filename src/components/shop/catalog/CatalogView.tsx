@@ -13,7 +13,7 @@ import {
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { getCatalogContext } from "@/lib/catalog-context";
+import { getCatalogContext } from "@/lib/catalog/session";
 import { getVehicle, listProducts } from "@/lib/catalog-queries";
 import { env } from "@/lib/env";
 import type { ProductType, VehicleDetail } from "@/types/catalog";

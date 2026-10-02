@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ProductShelf } from "@/components/shop/home/ProductShelf";
 import { Button } from "@/components/ui/button";
 import { listProducts } from "@/lib/catalog-queries";
-import { getCatalogContext } from "@/lib/catalog-context";
+import { getCatalogContext } from "@/lib/catalog/session";
 import type { ProductListItem } from "@/types/catalog";
 
 type Loaded = { ok: true; items: ProductListItem[] } | { ok: false };
