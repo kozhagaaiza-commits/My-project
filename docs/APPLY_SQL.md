@@ -5,7 +5,8 @@
 Файлы:
 - `supabase/migrations/0001_init.sql` — вся схема (таблицы, защита RLS, функции, бакет для фото);
 - `supabase/seed.sql` — справочник автомобилей (13 строк);
-- `supabase/rollback_0001.sql` — откат (нужен только при ошибке, см. шаг 5).
+- `supabase/rollback_0001.sql` — откат (нужен только при ошибке, см. шаг 5);
+- `supabase/migrations/20261002100000_orders_column_privileges.sql` — миграция 0002, см. шаг 8.
 
 ## 1. Открыть редактор
 Dashboard → проект → **SQL Editor** → **New query**.
@@ -89,6 +90,25 @@ Dashboard → **Authentication** (подробно — Чертёж, Блок 5.
 - **SMTP Settings**: свой SMTP Яндекса (`smtp.yandex.ru`, порт `465`, отправитель `ForgeCarbon`). Без него письма подтверждения не дойдут до ателье.
 - **Email Templates**: русские шаблоны «Подтвердите email», «Сброс пароля».
 
+## 8. Миграция 0002 (колоночные права)
+Скрывает от покупателей служебные поля их заказов (заметки админа, причины «требует внимания», Telegram-подписку). Выполняется **после** 0001, один раз.
+
+1. **New query** → вставьте всё содержимое `supabase/migrations/20261002100000_orders_column_privileges.sql` → **Run**.
+2. Ожидаемый результат: **Success. No rows returned**. Повторный запуск безопасен.
+3. Проверка:
+
+```sql
+select has_column_privilege('authenticated', 'public.orders', 'admin_note', 'select');
+```
+Ожидается: `false`.
+
+```sql
+select has_column_privilege('authenticated', 'public.orders', 'status', 'select');
+```
+Ожидается: `true`.
+
+Откат (только по просьбе разработчика) — две команды `grant select …` в конце файла миграции.
+
 ## Для разработчика
-- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте 0001 как применённую, иначе CLI попытается выполнить её повторно: `npx supabase migration repair --status applied 0001`.
+- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте применённые вручную миграции, иначе CLI выполнит их повторно: `npx supabase migration repair --status applied 0001` и `npx supabase migration repair --status applied 20261002100000`.
 - Типы: `npx supabase gen types typescript --project-id $PROJECT_REF > src/types/database.ts`.

@@ -1539,6 +1539,42 @@ update public.profiles set role = 'admin'
 where id = (select id from auth.users where email = 'owner@forgecarbon.ru');
 ```
 
+### 2.18 Колоночные права на orders и order_status_history (миграция 20261002100000)
+
+Файл `supabase/migrations/20261002100000_orders_column_privileges.sql`, выполняется после `0001_init.sql`. Политика `orders_select_own_or_admin` отбирает строки, но не колонки: без колоночных прав покупатель через PostgREST (anon-ключ + свой JWT) читал служебные поля своих заказов. Админка читает `orders` и `order_status_history` через service-role после проверки роли.
+
+```sql
+-- Сначала снимаем табличное SELECT (выдано API-ролям по умолчанию Supabase), затем выдаём колонки.
+-- anon заказов не читает вовсе: гость видит заказ только через сервер по токену.
+revoke select on public.orders from anon, authenticated;
+
+-- Скрыты: admin_note, attention_reason, needs_attention, telegram_chat_id,
+-- public_token_hash, client_request_id. courier_note и customer_visible_note покупатель видит (US-004).
+-- id и user_id обязательны: на них ссылаются политики order_items и order_status_history.
+grant select (
+  id, number, kind, status, user_id, atelier_id, price_tier,
+  customer_name, customer_phone, customer_email,
+  delivery_method, delivery_city, delivery_address, delivery_postal_code, cdek_pvz_code, delivery_price,
+  vehicle_id, vin, customer_comment,
+  subtotal, total,
+  reserved_until, paid_at, expected_ready_at, shipped_at, delivered_at, cancelled_at, cancel_reason,
+  tracking_number, courier_note, customer_visible_note,
+  consent_pd_at, consent_policy_version, created_at, updated_at
+) on public.orders to authenticated;
+
+-- note (внутренние пометки, суммы расхождений) и changed_by (id админа) скрыты.
+revoke select on public.order_status_history from anon, authenticated;
+
+grant select (id, order_id, from_status, to_status, created_at)
+  on public.order_status_history to authenticated;
+
+-- order_items не меняется: снапшоты позиций покупателю видны целиком.
+
+-- Откат (SQL Editor):
+--   grant select on public.orders to anon, authenticated;
+--   grant select on public.order_status_history to anon, authenticated;
+```
+
 ---
 ## БЛОК 3: API Endpoints
 
@@ -2456,7 +2492,7 @@ export const atelierApplyBody = z.object({
 
 ### Группа: Админка — товары
 
-Все `/api/admin/*` начинаются с проверки `role === "admin"` (см. 3.0) и работают через клиент с сессией (RLS проверяет `is_admin()` повторно), кроме мест, где явно указан service-role.
+Все `/api/admin/*` начинаются с проверки `role === "admin"` (см. 3.0) и работают через клиент с сессией (RLS проверяет `is_admin()` повторно), кроме мест, где явно указан service-role. **Исключение — заказы:** служебные колонки `orders` и `order_status_history.note` скрыты от роли `authenticated` колоночными правами (раздел 2.18), поэтому `/api/admin/orders*`, `GET /api/orders/[number]` и любое чтение заказов читают их через service-role ПОСЛЕ явной проверки роли admin либо токена/владения; `select("*")` из `orders` под сессией запрещён (ошибка доступа).
 
 #### `GET /api/admin/products`
 
@@ -4093,7 +4129,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 ### 5.10 Безопасность
 
 - **Аутентификация:** Supabase Auth email+пароль, сессия в httpOnly cookies (`@supabase/ssr`).
-- **Авторизация:** RLS на всех таблицах (Блок 2) + проверка роли в каждом `/api/admin/*` и в layout `/admin`. Service-role клиент (`src/lib/supabase/admin.ts`) начинается с `import "server-only"` и используется только в: публичном чтении каталога, `create_order`, `mark_order_paid`, webhook'ах, cron, смене роли при одобрении ателье.
+- **Авторизация:** RLS на всех таблицах (Блок 2) + проверка роли в каждом `/api/admin/*` и в layout `/admin`. Service-role клиент (`src/lib/supabase/admin.ts`) начинается с `import "server-only"` и используется только в: публичном чтении каталога, `create_order`, `mark_order_paid`, webhook'ах, cron, смене роли при одобрении ателье, админских эндпоинтах и странице заказа (чтение служебных колонок `orders` после проверки роли/владения, см. 2.18).
 - **CORS:** API рассчитан только на свой фронтенд. Заголовки `Access-Control-Allow-*` не выставляются нигде (браузеры блокируют чужие origin). Для мутирующих публичных и пользовательских эндпоинтов (`POST/PATCH/PUT/DELETE` кроме `/api/webhooks/*`, `/api/cron/*`) проверяется заголовок `Origin`: он должен совпадать с `new URL(NEXT_PUBLIC_SITE_URL).origin` (в dev — `http://localhost:3000`), иначе `403 FORBIDDEN` (защита от CSRF).
 - **Rate limiting** (`check_rate_limit`, ключ — IP из `x-forwarded-for` или `user.id`):
 
@@ -4251,6 +4287,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A20 | Порядок блокировок в `create_order` | Строки товаров блокируются `for update` в порядке `product_id` | Два одновременных заказа с теми же товарами в разном порядке иначе могут поймать deadlock (ревью, День 1) |
 | A21 | Права на `reserved_qty`, `available_qty`, `find_wheels_for_vehicle` | `revoke … from public, anon, authenticated` + `grant … to service_role` | Каталог читает только сервер; через `/rest/v1/rpc` anon видел остатки черновиков (ревью, День 1) |
 | A22 | Разбор суммы ЮKassa (`rubStringToKopecks`) | Целочисленный разбор, невалидная строка бросает ошибку | `Math.round(Number(v)*100)` давал NaN/0; NULL в `p_amount` молча пропускал проверку суммы в `mark_order_paid` (найдено ревью, День 1) |
+| A23 | Служебные поля заказов | Скрыты колоночными правами (2.18): покупателю на роли `authenticated` недоступны `admin_note`, `attention_reason`, `needs_attention`, `telegram_chat_id`, `public_token_hash`, `client_request_id`, `order_status_history.note` и `changed_by`; админка читает заказы через service-role после проверки роли | RLS скрывает строки, но не колонки: через PostgREST покупатель читал внутренние заметки своих заказов (ревью, День 2) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).
