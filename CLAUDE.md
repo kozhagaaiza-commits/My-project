@@ -57,6 +57,8 @@ supabase/migrations/0001_init.sql, supabase/seed.sql, vercel.json, scripts/
 При работе с любыми внешними библиотеками (Next.js, React, Supabase, Tailwind, shadcn, Zod, react-hook-form и т.д.)
 ВСЕГДА используй Context7 MCP для получения актуальной документации перед написанием кода.
 Добавляй "use context7" к запросам, связанным с API библиотек. Особенно: Next.js 16 (`proxy.ts`, async `params`), Tailwind v4, Zod 4 (`z.email()`, `z.flattenError`).
+Если Context7 недоступен (закрыта сеть) — документация Next.js лежит локально в `node_modules/next/dist/docs/` (см. `AGENTS.md`), типы и README остальных пакетов — в их `node_modules/<пакет>/`. Не пиши API по памяти.
+shadcn/ui: если `ui.shadcn.com` недоступен, исходники компонентов берутся из `raw.githubusercontent.com/shadcn-ui/ui/main/apps/v4/registry/new-york-v4/ui/`.
 
 ## Команды
 - `npm run dev` — локальная разработка
