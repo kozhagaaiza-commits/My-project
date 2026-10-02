@@ -29,7 +29,7 @@ model: opus
 - Тестируй политики SQL-запросами от разных ролей (`set local role authenticated; set local request.jwt.claims = '{"sub":"<uuid>"}'`): anon, customer, atelier, admin. Edge Cases 23, 24, 29 из Блока 6 должны давать отказ.
 
 ## Функции
-- `SECURITY DEFINER` → всегда `set search_path = public` и `revoke execute on function … from anon, authenticated` (кроме `current_role_name`, `is_admin`, которые нужны политикам).
+- `SECURITY DEFINER` → всегда `set search_path = public` и `revoke execute on function … from public, anon, authenticated` + `grant execute … to service_role` (PUBLIC иначе остаётся с EXECUTE) (кроме `current_role_name`, `is_admin`, которые нужны политикам).
 - Бизнес-ошибки — `raise exception 'CODE' using errcode = 'P0001'`; коды из 2.14 (`EMPTY_CART`, `TOO_MANY_LINES`, `PRODUCT_UNAVAILABLE:<id>`, `MIXED_KINDS`, `QTY_LIMIT:<id>`, `OUT_OF_STOCK:<id>`, `PRICE_CHANGED`, `ORDER_NOT_FOUND`) — бэкенд их парсит, не меняй формат.
 - Конкурентность: блокировка строк товара `for update` в `create_order` (Edge Case 10), идемпотентность по `client_request_id`.
 

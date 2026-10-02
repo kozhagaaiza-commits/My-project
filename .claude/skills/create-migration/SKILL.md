@@ -15,7 +15,7 @@ description: "Creates a Supabase SQL migration for ForgeCarbon with RLS, policie
    - RLS: `ALTER TABLE public.<table> ENABLE ROW LEVEL SECURITY;`
    - Политики: `CREATE POLICY "<table>_<op>_<who>" …` для каждой нужной операции через `auth.uid()` / `public.is_admin()`; для запрещённых — комментарий «политики нет намеренно».
    - Индексы: `CREATE INDEX idx_<table>_<cols> …` для FK и фильтров.
-   - Функции (если есть): `security definer set search_path = public` + `revoke execute … from anon, authenticated`; ошибки `errcode = 'P0001'`.
+   - Функции (если есть): `security definer set search_path = public` + `revoke execute … from public, anon, authenticated` + `grant execute … to service_role`; ошибки `errcode = 'P0001'`.
    - `COMMENT ON TABLE/COLUMN` для документации.
 4. **Применение.** Если доступен Supabase MCP — выполни миграцию и проверь политики запросами от anon / customer / admin. Иначе — сообщи команду `npx supabase db push`.
 5. **Типы.** Обнови TypeScript-типы: `npx supabase gen types typescript --project-id $PROJECT_REF > src/types/database.ts` (если есть доступ).

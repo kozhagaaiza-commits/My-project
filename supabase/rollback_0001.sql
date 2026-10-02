@@ -1,7 +1,7 @@
 -- ForgeCarbon — откат миграции 0001_init.sql.
 -- ВНИМАНИЕ: удаляет ВСЕ таблицы магазина вместе с данными (заказы, товары, профили).
 -- Применять только сразу после 0001 (до следующих миграций), если установку нужно начать заново.
--- Безопасен при частичной установке: все команды с «if exists».
+-- Можно запускать повторно: все команды с «if exists».
 -- Расширение moddatetime не удаляется (общее для проекта, не мешает повторной установке).
 
 begin;
@@ -10,6 +10,7 @@ begin;
 drop policy if exists "product_images_bucket_insert_admin" on storage.objects;
 drop policy if exists "product_images_bucket_update_admin" on storage.objects;
 drop policy if exists "product_images_bucket_delete_admin" on storage.objects;
+drop policy if exists "product_images_bucket_select_admin" on storage.objects;
 
 -- Бакет удаляется только пустым; Supabase может запрещать прямой DELETE из storage-таблиц.
 -- Ошибку не пропускаем дальше, чтобы откат остальной схемы не отменился, — выводим подсказку.
@@ -59,3 +60,10 @@ drop function if exists public.current_role_name();
 drop sequence if exists public.order_number_seq;
 
 commit;
+
+-- Итог отката — видимая строка в результатах (NOTICE в SQL Editor легко пропустить).
+select case
+  when exists (select 1 from storage.buckets where id = 'product-images')
+    then 'УДАЛИТЕ БАКЕТ product-images ВРУЧНУЮ (Storage → product-images → Delete bucket)'
+  else 'ok: бакета нет, можно запускать 0001 заново'
+end as result;

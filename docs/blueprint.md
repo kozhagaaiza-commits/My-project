@@ -1195,6 +1195,11 @@ as $$
     and o.reserved_until > now();
 $$;
 
+-- Каталог и остатки читает только сервер (service-role); через /rest/v1/rpc anon
+-- видел бы остатки черновиков. create_order (SECURITY DEFINER) вызывает их с правами владельца.
+revoke execute on function public.reserved_qty(uuid) from public, anon, authenticated;
+grant execute on function public.reserved_qty(uuid) to service_role;
+
 create or replace function public.available_qty(p_product_id uuid)
 returns integer
 language sql stable security definer set search_path = public
@@ -1202,6 +1207,10 @@ as $$
   select greatest(p.stock_qty - public.reserved_qty(p.id), 0)
   from public.products p where p.id = p_product_id;
 $$;
+
+-- Только сервер, см. reserved_qty.
+revoke execute on function public.available_qty(uuid) from public, anon, authenticated;
+grant execute on function public.available_qty(uuid) to service_role;
 
 -- Подбор дисков по автомобилю.
 -- ЦО диска может быть больше ЦО авто только при наличии колец в комплекте.
@@ -1226,12 +1235,16 @@ as $$
     and (p.seat_type = v.seat_type or p.includes_fasteners);
 $$;
 
+-- Только сервер, см. reserved_qty.
+revoke execute on function public.find_wheels_for_vehicle(uuid) from public, anon, authenticated;
+grant execute on function public.find_wheels_for_vehicle(uuid) to service_role;
+
 -- Создание заказа с бронью. Вызывается только сервером (service-role) из POST /api/orders.
 -- p_order: {client_request_id, public_token_hash, user_id, atelier_id, customer_*, delivery_*,
 --           cdek_pvz_code, vehicle_id, vin, customer_comment, consent_policy_version, expected_total}
 -- p_items: [{"product_id":"...","quantity":1}]
 -- Исключения (errcode P0001, message):
---   'EMPTY_CART', 'TOO_MANY_LINES', 'PRODUCT_UNAVAILABLE:<id>', 'MIXED_KINDS',
+--   'EMPTY_CART', 'TOO_MANY_LINES', 'DUPLICATE_ITEMS', 'PRODUCT_UNAVAILABLE:<id>', 'MIXED_KINDS',
 --   'QTY_LIMIT:<id>', 'OUT_OF_STOCK:<id>', 'PRICE_CHANGED'
 create or replace function public.create_order(p_order jsonb, p_items jsonb)
 returns table (order_id uuid, order_number text, order_total integer, order_kind text)
@@ -1263,9 +1276,17 @@ begin
   if jsonb_array_length(p_items) > 10 then
     raise exception 'TOO_MANY_LINES' using errcode = 'P0001';
   end if;
+  -- Один товар — одна строка. Иначе [{p,1},{p,1}] обходит проверку остатка
+  -- (обе строки видят одинаковый резерв) и QTY_LIMIT (2+2). Сравнение по uuid, не по тексту.
+  if (select count(distinct (e->>'product_id')::uuid) from jsonb_array_elements(p_items) e)
+     <> jsonb_array_length(p_items) then
+    raise exception 'DUPLICATE_ITEMS' using errcode = 'P0001';
+  end if;
 
   -- Первый проход: блокировка строк товаров, проверки, сумма.
-  for v_item in select * from jsonb_array_elements(p_items) loop
+  -- Блокируем строки в едином порядке (по product_id), чтобы два
+  -- одновременных заказа с теми же товарами в разном порядке не ловили deadlock.
+  for v_item in select value from jsonb_array_elements(p_items) order by (value->>'product_id')::uuid loop
     v_qty := (v_item->>'quantity')::integer;
 
     select * into v_p from public.products
@@ -1475,8 +1496,14 @@ create policy "product_images_bucket_update_admin" on storage.objects
 create policy "product_images_bucket_delete_admin" on storage.objects
   for delete to authenticated
   using (bucket_id = 'product-images' and public.is_admin());
--- SELECT-политика не нужна: публичный бакет отдаёт файлы по URL
+
+-- Storage API (remove, upsert, list) находит объекты через SELECT —
+-- без этой политики замена и удаление фото в админке падают. Нужна только admin:
+-- публичный бакет отдаёт файлы по URL без проверки политик
 -- https://<project-ref>.supabase.co/storage/v1/object/public/product-images/<path>
+create policy "product_images_bucket_select_admin" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'product-images' and public.is_admin());
 ```
 
 ### 2.16 Seed (`supabase/seed.sql`)
@@ -1931,7 +1958,8 @@ export const productDetailQuery = z.object({ vehicle: uuid.optional() });
 **Zod:**
 ```ts
 export const cartValidateBody = z.object({
-  items: z.array(z.object({ product_id: uuid, quantity: z.number().int().min(1).max(4) })).min(1).max(10),
+  items: z.array(z.object({ product_id: uuid, quantity: z.number().int().min(1).max(4) })).min(1).max(10)
+    .refine((a) => new Set(a.map((i) => i.product_id)).size === a.length, "Один товар — одна позиция"),
 });
 ```
 
@@ -2000,7 +2028,8 @@ export const cartValidateBody = z.object({
 ```ts
 export const createOrderBody = z.object({
   client_request_id: uuid,
-  items: z.array(z.object({ product_id: uuid, quantity: z.number().int().min(1).max(4) })).min(1).max(10),
+  items: z.array(z.object({ product_id: uuid, quantity: z.number().int().min(1).max(4) })).min(1).max(10)
+    .refine((a) => new Set(a.map((i) => i.product_id)).size === a.length, "Один товар — одна позиция"),
   expected_total: kopecks,
   customer: z.object({
     name: z.string().trim().min(2, "Минимум 2 символа").max(100),
@@ -2043,7 +2072,7 @@ export const createOrderBody = z.object({
 2. `safeParse` тела.
 3. `ctx = await getSessionContext()`.
 4. `token = randomBytes(24).toString("base64url")` (32 символа), `token_hash = sha256(token)` в hex.
-5. `adminClient.rpc("create_order", { p_order, p_items })`. Ошибки Postgres с `message` из списка в 2.14 переводятся в коды ниже.
+5. `adminClient.rpc("create_order", { p_order, p_items })`. Ошибки Postgres с `message` из списка в 2.14 переводятся в коды ниже. `DUPLICATE_ITEMS` (повтор `product_id` в позициях) → `400 VALIDATION_ERROR` «Один товар — одна позиция» (обычно перехватывается Zod раньше).
 6. Создание платежа ЮKassa (`createPayment` из Блока 5, `Idempotence-Key = "order_" + order_id + "_1"`), сохранение в `payments`.
 7. Ответ 201.
 8. Если шаг 6 упал — заказ остаётся `pending_payment`, ответ 502 `PAYMENT_PROVIDER_ERROR` с `order_url`, чтобы покупатель мог повторить оплату со страницы заказа.
@@ -3217,7 +3246,14 @@ body { background: var(--background); color: var(--foreground); }
 ```ts
 const rub = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2, minimumFractionDigits: 0 });
 export const formatRub = (kopecks: number) => rub.format(kopecks / 100); // 13370000 → "133 700 ₽"
-export const rubStringToKopecks = (v: string) => Math.round(Number(v) * 100); // "133700.00" → 13370000
+// Целочисленный разбор без float; невалидная строка → исключение (NaN/0 не должны доходить до mark_order_paid).
+export const rubStringToKopecks = (v: string): number => {
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(v.trim());
+  if (!m) throw new Error(`Invalid RUB amount: ${JSON.stringify(v)}`);
+  const kopecks = Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0")); // "133700.00" → 13370000
+  if (!Number.isSafeInteger(kopecks)) throw new Error(`RUB amount out of range: ${JSON.stringify(v)}`);
+  return kopecks;
+};
 export const kopecksToRubString = (k: number) => (k / 100).toFixed(2);       // 13370000 → "133700.00"
 ```
 
@@ -4210,6 +4246,11 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A15 | Уведомление Роскомнадзора | Подаётся до запуска | Идея просила проверить; решено подавать |
 | A16 | SQL блока 2.0: порядок создания функций | `current_role_name` и `is_admin` создаются с `set check_function_bodies = off` | Иначе миграция падает: функция ссылается на `profiles`, которой ещё нет (найдено при проверке на PostgreSQL, День 1) |
 | A17 | Права на служебные SQL-функции | `revoke … from public, anon, authenticated` + `grant … to service_role` | EXECUTE по умолчанию выдан PUBLIC, `revoke` только от anon/authenticated доступа не закрывал: anon вызывал `create_order` (найдено при проверке, День 1) |
+| A18 | Чтение файлов бакета `product-images` | SELECT-политика на `storage.objects` только для admin | Storage API находит объекты для `remove`/`upsert`/`list` через SELECT: без политики замена и удаление фото в админке падают. Публичная отдача по URL от политики не зависит (ревью, День 1) |
+| A19 | Дубли товара в `create_order` | Одна строка на товар, иначе `DUPLICATE_ITEMS` (бэкенд → 400 `VALIDATION_ERROR`) | `[{p,1},{p,1}]` проходил проверку остатка дважды (оверселл) и обходил `QTY_LIMIT` разбиением 2+2 (ревью, День 1) |
+| A20 | Порядок блокировок в `create_order` | Строки товаров блокируются `for update` в порядке `product_id` | Два одновременных заказа с теми же товарами в разном порядке иначе могут поймать deadlock (ревью, День 1) |
+| A21 | Права на `reserved_qty`, `available_qty`, `find_wheels_for_vehicle` | `revoke … from public, anon, authenticated` + `grant … to service_role` | Каталог читает только сервер; через `/rest/v1/rpc` anon видел остатки черновиков (ревью, День 1) |
+| A22 | Разбор суммы ЮKassa (`rubStringToKopecks`) | Целочисленный разбор, невалидная строка бросает ошибку | `Math.round(Number(v)*100)` давал NaN/0; NULL в `p_amount` молча пропускал проверку суммы в `mark_order_paid` (найдено ревью, День 1) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).

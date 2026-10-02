@@ -50,7 +50,7 @@ supabase/migrations/0001_init.sql, supabase/seed.sql, vercel.json, scripts/
 ## Работа с Supabase
 - Все изменения схемы — миграции в `supabase/migrations/`. Первая — `0001_init.sql` (весь SQL Блока 2 в его порядке), дальше `YYYYMMDDHHMMSS_описание.sql`.
 - RLS включена на каждой таблице. Отсутствие политики = запрет — подписывай комментарием «политики нет намеренно».
-- SECURITY DEFINER функции: `set search_path = public` + `revoke execute … from anon, authenticated`.
+- SECURITY DEFINER функции: `set search_path = public` + `revoke execute … from public, anon, authenticated` + `grant execute … to service_role` (EXECUTE по умолчанию выдан PUBLIC — одного revoke от anon/authenticated мало).
 - Типы: `npx supabase gen types typescript --project-id $PROJECT_REF > src/types/database.ts`
 
 ## Context7

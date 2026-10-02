@@ -666,6 +666,11 @@ as $$
     and o.reserved_until > now();
 $$;
 
+-- FIX(blueprint): каталог и остатки читает только сервер (service-role); через /rest/v1/rpc anon
+-- видел бы остатки черновиков. create_order (SECURITY DEFINER) вызывает их с правами владельца.
+revoke execute on function public.reserved_qty(uuid) from public, anon, authenticated;
+grant execute on function public.reserved_qty(uuid) to service_role;
+
 create or replace function public.available_qty(p_product_id uuid)
 returns integer
 language sql stable security definer set search_path = public
@@ -673,6 +678,10 @@ as $$
   select greatest(p.stock_qty - public.reserved_qty(p.id), 0)
   from public.products p where p.id = p_product_id;
 $$;
+
+-- FIX(blueprint): только сервер, см. reserved_qty.
+revoke execute on function public.available_qty(uuid) from public, anon, authenticated;
+grant execute on function public.available_qty(uuid) to service_role;
 
 -- Подбор дисков по автомобилю.
 -- ЦО диска может быть больше ЦО авто только при наличии колец в комплекте.
@@ -697,12 +706,16 @@ as $$
     and (p.seat_type = v.seat_type or p.includes_fasteners);
 $$;
 
+-- FIX(blueprint): только сервер, см. reserved_qty.
+revoke execute on function public.find_wheels_for_vehicle(uuid) from public, anon, authenticated;
+grant execute on function public.find_wheels_for_vehicle(uuid) to service_role;
+
 -- Создание заказа с бронью. Вызывается только сервером (service-role) из POST /api/orders.
 -- p_order: {client_request_id, public_token_hash, user_id, atelier_id, customer_*, delivery_*,
 --           cdek_pvz_code, vehicle_id, vin, customer_comment, consent_policy_version, expected_total}
 -- p_items: [{"product_id":"...","quantity":1}]
 -- Исключения (errcode P0001, message):
---   'EMPTY_CART', 'TOO_MANY_LINES', 'PRODUCT_UNAVAILABLE:<id>', 'MIXED_KINDS',
+--   'EMPTY_CART', 'TOO_MANY_LINES', 'DUPLICATE_ITEMS', 'PRODUCT_UNAVAILABLE:<id>', 'MIXED_KINDS',
 --   'QTY_LIMIT:<id>', 'OUT_OF_STOCK:<id>', 'PRICE_CHANGED'
 create or replace function public.create_order(p_order jsonb, p_items jsonb)
 returns table (order_id uuid, order_number text, order_total integer, order_kind text)
@@ -734,9 +747,17 @@ begin
   if jsonb_array_length(p_items) > 10 then
     raise exception 'TOO_MANY_LINES' using errcode = 'P0001';
   end if;
+  -- FIX(blueprint): один товар — одна строка. Иначе [{p,1},{p,1}] обходит проверку остатка
+  -- (обе строки видят одинаковый резерв) и QTY_LIMIT (2+2). Сравнение по uuid, не по тексту.
+  if (select count(distinct (e->>'product_id')::uuid) from jsonb_array_elements(p_items) e)
+     <> jsonb_array_length(p_items) then
+    raise exception 'DUPLICATE_ITEMS' using errcode = 'P0001';
+  end if;
 
   -- Первый проход: блокировка строк товаров, проверки, сумма.
-  for v_item in select * from jsonb_array_elements(p_items) loop
+  -- FIX(blueprint): блокируем строки в едином порядке (по product_id), чтобы два
+  -- одновременных заказа с теми же товарами в разном порядке не ловили deadlock.
+  for v_item in select value from jsonb_array_elements(p_items) order by (value->>'product_id')::uuid loop
     v_qty := (v_item->>'quantity')::integer;
 
     select * into v_p from public.products
@@ -947,5 +968,11 @@ create policy "product_images_bucket_update_admin" on storage.objects
 create policy "product_images_bucket_delete_admin" on storage.objects
   for delete to authenticated
   using (bucket_id = 'product-images' and public.is_admin());
--- SELECT-политика не нужна: публичный бакет отдаёт файлы по URL
+
+-- FIX(blueprint): Storage API (remove, upsert, list) находит объекты через SELECT —
+-- без этой политики замена и удаление фото в админке падают. Нужна только admin:
+-- публичный бакет отдаёт файлы по URL без проверки политик
 -- https://<project-ref>.supabase.co/storage/v1/object/public/product-images/<path>
+create policy "product_images_bucket_select_admin" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'product-images' and public.is_admin());

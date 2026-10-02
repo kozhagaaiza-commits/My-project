@@ -14,6 +14,6 @@ paths:
 - Деньги — `integer` в копейках; закупка — в минимальных единицах валюты.
 - FK всегда с явным `ON DELETE`: заказы, платежи, возвраты, история — `RESTRICT`; заказы не удаляются никогда (BR-15).
 - Индексы для FK и частых фильтров.
-- SECURITY DEFINER: `set search_path = public` + `revoke execute … from anon, authenticated`.
+- SECURITY DEFINER: `set search_path = public` + `revoke execute … from public, anon, authenticated` + `grant execute … to service_role` (EXECUTE по умолчанию выдан PUBLIC — одного revoke от anon/authenticated мало).
 - Бизнес-ошибки функций — `errcode = 'P0001'` с кодами из 2.14; формат сообщений не менять (их парсит бэкенд).
 - После изменения схемы — обнови `src/types/database.ts` (`npx supabase gen types typescript`).
