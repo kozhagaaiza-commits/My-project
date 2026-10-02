@@ -30,7 +30,7 @@ supabase/migrations/0001_init.sql, supabase/seed.sql, vercel.json, scripts/
 ```
 - Server Components по умолчанию; `'use client'` — только для интерактива.
 - **Server Actions для мутаций НЕ используются** — только Route Handlers `src/app/api/**/route.ts`.
-- Каталог читается публично только через сервер (service-role + `PUBLIC_PRODUCT_COLUMNS`). Service-role клиент — только в местах из Блока 5.10.
+- Каталог читается публично только через сервер (service-role + `PUBLIC_PRODUCT_COLUMNS`). Service-role клиент — только в местах из Блока 5.10. Исключение (решение владельца, День 2): служебные колонки `orders` (admin_note, attention_reason, needs_attention, telegram_chat_id, public_token_hash, client_request_id) и `order_status_history.note` скрыты колоночными правами — `/api/admin/orders*` и страница заказа читают заказы через service-role ПОСЛЕ проверки роли/владельца, сессионный клиент этих колонок не видит.
 - Заказы создаются и оплачиваются только через SQL-функции `create_order` / `mark_order_paid`.
 
 ## Правила кодирования
