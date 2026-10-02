@@ -1,0 +1,27 @@
+---
+description: Правила для уведомлений, Telegram-бота, почты, курсов ЦБ, cron и окружения
+paths:
+  - "src/lib/telegram.ts"
+  - "src/lib/mailer.ts"
+  - "src/lib/cbr.ts"
+  - "src/lib/env.ts"
+  - "src/lib/analytics.ts"
+  - "src/lib/notifications/**"
+  - "src/app/api/webhooks/telegram/**"
+  - "src/app/api/cron/**"
+  - "src/app/api/admin/exchange-rates/**"
+  - "src/app/api/admin/prices/**"
+  - "scripts/**"
+  - "supabase/email-templates/**"
+  - "vercel.json"
+  - "next.config.ts"
+---
+- Источник — `docs/blueprint.md`, 5.8, 5.9.2–5.9.4, 5.12. Сложные изменения — через субагента `integrations-engineer`.
+- Каждый внешний вызов — с таймаутом (`AbortSignal.timeout`) и retry по Чертежу; после неудачи — запись в `notification_queue`, основной запрос не падает.
+- Все подставляемые значения в Telegram (HTML) и письмах — через `escapeHtml`.
+- Тексты уведомлений — дословно из таблицы 5.9.2.
+- Секреты сверяются: `X-Telegram-Bot-Api-Secret-Token`, `Authorization: Bearer <CRON_SECRET>`.
+- Cron — один ежедневный `/api/cron/daily` (`0 6 * * *`); шаги независимы, ошибки собираются в ответ.
+- Курсы ЦБ: XML в windows-1251, `on conflict (currency, rate_date) do nothing`.
+- Env — только через `src/lib/env.ts`; новые переменные добавлять в Zod-схему и `.env.example` (без значений); секреты не коммитить.
+- Метрика — no-op без `NEXT_PUBLIC_YM_COUNTER_ID`, вебвизор выключен.

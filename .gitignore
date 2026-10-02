@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# env — секреты не коммитить (Чертёж 5.10)
+.env*
+!.env.example
+
+# vercel / supabase
+.vercel/
+supabase/.temp/
+supabase/.branches/
+
+# misc
+.DS_Store
+*.log
+*.tsbuildinfo
+coverage/
+
+# Claude Code — локальные настройки
+.claude/settings.local.json
