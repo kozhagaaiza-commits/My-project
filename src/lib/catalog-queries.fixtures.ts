@@ -1,6 +1,7 @@
 import "server-only";
 import { CATALOG_PAGE_SIZE } from "@/lib/config";
 import { formatRub } from "@/lib/money";
+import type { CartProduct } from "@/types/cart";
 import type {
   Availability, CatalogContext, Construction, ProductDetail, ProductListItem, ProductsQuery,
   ProductSpecs, SeatType, VehicleDetail, VehicleOption,
@@ -180,6 +181,21 @@ function getProductBySlug(slug: string, vehicleId: string | undefined, ctx: Cata
   return Promise.resolve({ kind: "ok" as const, data });
 }
 
+/** Все FIXTURE-товары — active; id вне списка (снятые/несуществующие) пропускаются → problem "unavailable". */
+function getCartProducts(ids: string[], ctx: CatalogContext): CartProduct[] {
+  const wanted = new Set(ids);
+  return FIXTURE_PRODUCTS.filter((p) => wanted.has(p.id)).map((p) => ({
+    id: p.id,
+    slug: p.slug,
+    title: p.title,
+    type: p.type,
+    availability_mode: p.type === "carbon_part" ? "preorder" : "stock",
+    unit_price: showAtelier(ctx) ? p.price_atelier ?? p.price : p.price,
+    available_qty: p.type === "carbon_part" ? null : p.stock_qty,
+    cover_image_url: p.images[0]?.url ?? null,
+  }));
+}
+
 const unique = (xs: string[]) => [...new Set(xs)];
 
 export const fixtureQueries: CatalogQueries = {
@@ -205,8 +221,5 @@ export const fixtureQueries: CatalogQueries = {
   },
   listProducts: async (query, ctx) => listProducts(query, ctx),
   getProductBySlug: async (slug, vehicleId, ctx) => getProductBySlug(slug, vehicleId, ctx),
-  // День 3: пишет frontend-developer (см. src/types/cart.ts).
-  getCartProducts: async () => {
-    throw new Error("not implemented");
-  },
+  getCartProducts: async (ids, ctx) => getCartProducts(ids, ctx),
 };

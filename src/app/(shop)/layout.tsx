@@ -6,7 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 export default function ShopLayout({ children }: LayoutProps<"/">) {
   return (
     <TooltipProvider>
-      <div className="flex min-h-screen flex-col">
+      {/* Страницы с панелью, прибитой к низу экрана на mobile ([data-sticky-panel]), получают отступ — подвал не перекрывается. */}
+      <div className="flex min-h-screen flex-col max-md:has-[[data-sticky-panel]]:pb-28">
         <SiteHeader />
         <main id="main" className="flex-1">
           {children}

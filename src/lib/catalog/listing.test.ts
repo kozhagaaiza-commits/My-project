@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { toPublicProduct } from "@/lib/catalog";
+import { isAtelierPricing, tierPrice, toPublicProduct } from "@/lib/catalog";
 import { G30, carbonRow, wheelRow } from "@/lib/catalog/__fixtures__/rows";
 import { applyFilters, paginate, pickCovers, sortEntries, toEntries, toListItem } from "@/lib/catalog/listing";
 import type { ProductRow } from "@/lib/catalog/rows";
@@ -35,6 +35,47 @@ describe("сортировка: in_stock (и preorder) всегда выше out
     assert.deepEqual(ids(sortEntries(entries, "price_asc")), ["d", "c", "a", "b"]);
     assert.deepEqual(ids(sortEntries(entries, "price_desc")), ["a", "c", "d", "b"]);
     assert.deepEqual(ids(sortEntries(entries, "newest")), ["c", "d", "a", "b"]);
+  });
+});
+
+describe("сортировка по цене ателье (решение владельца, День 3, A26)", () => {
+  const atelier = { atelierId: "at-1" };
+  // p: розница 300, ателье 100; q: розница 200, ателье не задана (= 200); r: розница 250, ателье 150
+  const rowsA = [
+    wheelRow({ id: "p", slug: "p", price: 300, price_atelier: 100 }),
+    wheelRow({ id: "q", slug: "q", price: 200, price_atelier: null }),
+    wheelRow({ id: "r", slug: "r", price: 250, price_atelier: 150 }),
+  ];
+  const forAtelier = toEntries(rowsA.map((r) => toPublicProduct(r, atelier, true)), new Map(), null, null);
+  const forGuest = toEntries(rowsA.map((r) => toPublicProduct(r, guest, true)), new Map(), null, null);
+
+  it("ателье: по price_atelier ?? price", () => {
+    assert.deepEqual(ids(sortEntries(forAtelier, "price_asc", true)), ["p", "r", "q"]);
+    assert.deepEqual(ids(sortEntries(forAtelier, "price_desc", true)), ["q", "r", "p"]);
+  });
+  it("без флага (гость, не одобренное ателье, FEATURE_ATELIER=false) — по рознице", () => {
+    assert.deepEqual(ids(sortEntries(forAtelier, "price_asc")), ["q", "r", "p"]);
+    assert.deepEqual(ids(sortEntries(forGuest, "price_asc", false)), ["q", "r", "p"]);
+  });
+  it("флаг при скрытой price_atelier (toPublicProduct для гостя) не раскрывает цену ателье — сортировка по рознице", () => {
+    assert.deepEqual(ids(sortEntries(forGuest, "price_asc", true)), ["q", "r", "p"]);
+  });
+  it("newest и правило «нет в наличии — ниже» флаг не меняет", () => {
+    assert.deepEqual(ids(sortEntries(entries, "newest", true)), ids(sortEntries(entries, "newest")));
+    assert.equal(ids(sortEntries(entries, "price_asc", true)).at(-1), "b");
+  });
+});
+
+describe("isAtelierPricing / tierPrice", () => {
+  it("только одобренное ателье при FEATURE_ATELIER", () => {
+    assert.equal(isAtelierPricing({ atelierId: "at-1" }, true), true);
+    assert.equal(isAtelierPricing({ atelierId: "at-1" }, false), false);
+    assert.equal(isAtelierPricing({ atelierId: null }, true), false);
+  });
+  it("price_atelier ?? price для ателье, иначе price", () => {
+    assert.equal(tierPrice({ price: 300, price_atelier: 100 }, true), 100);
+    assert.equal(tierPrice({ price: 300, price_atelier: null }, true), 300);
+    assert.equal(tierPrice({ price: 300, price_atelier: 100 }, false), 300);
   });
 });
 

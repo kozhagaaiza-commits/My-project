@@ -1,5 +1,6 @@
 import "server-only";
-import { toPublicProduct, vehicleLabel } from "@/lib/catalog";
+import { loadCartProducts } from "@/lib/cart/db";
+import { isAtelierPricing, toPublicProduct, vehicleLabel } from "@/lib/catalog";
 import {
   rpcFindWheels, rpcReservedQtyMap, selectActiveProducts, selectActiveVehicle, selectActiveVehicles,
   selectActiveVehiclesByIds, selectImages, selectProductBySlug, selectProductIdsForVehicle, selectVehicleIdsForProduct,
@@ -61,7 +62,10 @@ export const realQueries: CatalogQueries = {
       .map((p) => toPublicProduct(p, ctx));
     const reserved = await rpcReservedQtyMap(c);
 
-    const entries = sortEntries(applyFilters(toEntries(products, reserved, fits, vehicle?.id ?? null), query), query.sort);
+    // Ателье сортирует по своей цене (price_atelier ?? price) — решение владельца, День 3 (A26).
+    const entries = sortEntries(
+      applyFilters(toEntries(products, reserved, fits, vehicle?.id ?? null), query), query.sort, isAtelierPricing(ctx),
+    );
     const pageEntries = paginate(entries, query.page, CATALOG_PAGE_SIZE);
     const covers = pickCovers(await selectImages(c, pageEntries.map((e) => e.product.id)));
 
@@ -102,8 +106,8 @@ export const realQueries: CatalogQueries = {
     };
   },
 
-  // День 3: пишет backend-engineer (см. src/types/cart.ts).
-  async getCartProducts() {
-    throw new Error("not implemented");
+  // POST /api/cart/validate: active-товары по id, брони, обложки; unit_price по уровню цены (BR-10/BR-20).
+  async getCartProducts(ids, ctx) {
+    return loadCartProducts(db(), ids, ctx, { supabaseUrl: env.NEXT_PUBLIC_SUPABASE_URL });
   },
 };

@@ -1,5 +1,5 @@
 import {
-  availabilityForList, buildAvailability, buildSpecsShort, formatPrice, toProductImage,
+  availabilityForList, buildAvailability, buildSpecsShort, formatPrice, tierPrice, toProductImage,
 } from "@/lib/catalog";
 import { formatRub } from "@/lib/money";
 import type { ImageRow, ListProductRow } from "@/lib/catalog/rows";
@@ -46,12 +46,17 @@ export function applyFilters(entries: CatalogEntry[], q: Pick<ProductsQuery, "ty
   });
 }
 
-/** in_stock (и preorder — доступен к заказу) всегда выше out_of_stock; внутри групп — по sort; затем по id. */
-export function sortEntries(entries: CatalogEntry[], sort: ProductsQuery["sort"]): CatalogEntry[] {
+/**
+ * in_stock (и preorder — доступен к заказу) всегда выше out_of_stock; внутри групп — по sort; затем по id.
+ * atelierPricing (одобренное ателье при FEATURE_ATELIER, см. isAtelierPricing): сортировка по цене идёт
+ * по цене ателье (price_atelier ?? price) — решение владельца, День 3 (Приложение A, A26). Иначе — по price.
+ */
+export function sortEntries(entries: CatalogEntry[], sort: ProductsQuery["sort"], atelierPricing: boolean = false): CatalogEntry[] {
   const rank = (e: CatalogEntry) => (e.availability.status === "out_of_stock" ? 1 : 0);
+  const price = (e: CatalogEntry) => tierPrice(e.product, atelierPricing);
   const bySort = (a: CatalogEntry, b: CatalogEntry) => {
-    if (sort === "price_asc") return a.product.price - b.product.price;
-    if (sort === "price_desc") return b.product.price - a.product.price;
+    if (sort === "price_asc") return price(a) - price(b);
+    if (sort === "price_desc") return price(b) - price(a);
     return Date.parse(b.product.created_at) - Date.parse(a.product.created_at);
   };
   return [...entries].sort((a, b) => rank(a) - rank(b) || bySort(a, b) || a.product.id.localeCompare(b.product.id));

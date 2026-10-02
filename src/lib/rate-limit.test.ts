@@ -26,6 +26,9 @@ describe("rate limit (5.10)", () => {
   it("лимит каталога — 120 за 60 с", () => {
     assert.deepEqual(mod.RATE_LIMITS.catalog, { limit: 120, windowSeconds: 60 });
   });
+  it("лимит проверки корзины — 60 за 60 с (5.10)", () => {
+    assert.deepEqual(mod.RATE_LIMITS.cart, { limit: 60, windowSeconds: 60 });
+  });
   it("429: JSON из 3.0 и Retry-After", async () => {
     const res = mod.rateLimitedResponse(60);
     assert.equal(res.status, 429);

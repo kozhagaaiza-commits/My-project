@@ -44,7 +44,7 @@ export function toPublicProduct(row: ListProductRow, ctx: CatalogContext, featur
 export function toPublicProduct(
   row: ListProductRow & { description?: string }, ctx: CatalogContext, featureAtelier: boolean = FEATURE_ATELIER,
 ): ListProductRow & { description?: string } {
-  const showAtelier = featureAtelier && ctx.atelierId !== null;
+  const showAtelier = isAtelierPricing(ctx, featureAtelier);
   const pub: ListProductRow = {
     id: row.id, type: row.type, slug: row.slug, sku: row.sku, title: row.title,
     manufacturer: row.manufacturer, status: row.status,
@@ -62,6 +62,14 @@ export function toPublicProduct(
   };
   return typeof row.description === "string" ? { ...pub, description: row.description } : pub;
 }
+
+/** Цены ателье применяются только одобренному ателье (ctx.atelierId ≠ null) и при FEATURE_ATELIER (BR-10, BR-20). */
+export const isAtelierPricing = (ctx: CatalogContext, featureAtelier: boolean = FEATURE_ATELIER): boolean =>
+  featureAtelier && ctx.atelierId !== null;
+
+/** Цена уровня покупателя: ателье — price_atelier, если задана, иначе розница (BR-09); остальным — price. */
+export const tierPrice = (p: { price: number; price_atelier: number | null }, atelierPricing: boolean): number =>
+  atelierPricing ? (p.price_atelier ?? p.price) : p.price;
 
 export const formatPrice = (kopecks: number | null): string | null => (kopecks === null ? null : formatRub(kopecks));
 

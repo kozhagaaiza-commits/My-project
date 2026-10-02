@@ -172,7 +172,17 @@ const wheelProducts: FixtureProduct[] = wheelInputs.map((w, i) => ({
   type: "wheel_set", slug: w.slug, sku: w.sku, title: w.title, manufacturer: MAKER_NAMES[w.maker],
   description: w.description, stock_qty: w.stock, lead_time: null, price: w.price, price_atelier: w.atelier,
   warranty_months: 24, created_at: w.created, wheel: w.wheel, compatible_vehicle_ids: null,
-  images: [{ url: discImage(w.finish, w.spokes), alt: `${w.title}, вид спереди` }],
+  images: [
+    { url: discImage(w.finish, w.spokes), alt: `${w.title}, вид спереди` },
+    // Первый комплект — с несколькими фото, чтобы проверять галерею (миниатюры, просмотр, свайп).
+    ...(i === 0
+      ? [
+          { url: discImage("silver", 6), alt: `${w.title}, вид сбоку` },
+          { url: discImage("bronze", 10), alt: `${w.title}, макро спиц` },
+          { url: discImage("black", 5), alt: `${w.title}, комплект` },
+        ]
+      : []),
+  ],
 }));
 
 const carbonProducts: FixtureProduct[] = carbonInputs.map((c, i) => ({
@@ -180,7 +190,11 @@ const carbonProducts: FixtureProduct[] = carbonInputs.map((c, i) => ({
   type: "carbon_part", slug: c.slug, sku: c.sku, title: c.title, manufacturer: "ForgeCarbon Carbon",
   description: c.description, stock_qty: 0, lead_time: { min_days: c.lead[0], max_days: c.lead[1] },
   price: c.price, price_atelier: c.atelier, warranty_months: c.warranty, created_at: c.created, wheel: null,
-  compatible_vehicle_ids: c.vehicles, images: [{ url: carbonImage(c.kind), alt: c.alt }],
+  compatible_vehicle_ids: c.vehicles,
+  images: [
+    { url: carbonImage(c.kind), alt: c.alt },
+    ...(i === 0 ? [{ url: carbonImage("splitter"), alt: `${c.alt}, вид сбоку` }, { url: carbonImage("spoiler"), alt: `${c.alt}, крепление` }] : []),
+  ],
 }));
 
 export const FIXTURE_PRODUCTS: FixtureProduct[] = [...wheelProducts, ...carbonProducts];

@@ -9,6 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const RATE_LIMITS = {
   /** GET /api/products, /api/products/[slug], /api/vehicles/* — 120 на IP за 60 с. Ключ `catalog:<ip>`. */
   catalog: { limit: 120, windowSeconds: 60 },
+  /** POST /api/cart/validate — 60 на IP за 60 с. Ключ `cart:<ip>`. */
+  cart: { limit: 60, windowSeconds: 60 },
 } as const;
 
 /** Первый адрес из x-forwarded-for (его ставит Vercel), иначе "unknown". */
@@ -52,5 +54,15 @@ export function rateLimitedResponse(retryAfterSeconds: number) {
 export async function limitCatalog(request: Request) {
   const { limit, windowSeconds } = RATE_LIMITS.catalog;
   const allowed = await checkRateLimit(`catalog:${getClientIp(request)}`, limit, windowSeconds, { failOpen: true });
+  return allowed ? null : rateLimitedResponse(windowSeconds);
+}
+
+/**
+ * Лимит POST /api/cart/validate: вернёт готовый 429 или null. fail-open, как у каталога: проверка корзины —
+ * чтение (ничего не бронирует), сбой таблицы лимитов не должен ломать корзину; бронь защищена лимитом POST /api/orders.
+ */
+export async function limitCart(request: Request) {
+  const { limit, windowSeconds } = RATE_LIMITS.cart;
+  const allowed = await checkRateLimit(`cart:${getClientIp(request)}`, limit, windowSeconds, { failOpen: true });
   return allowed ? null : rateLimitedResponse(windowSeconds);
 }
