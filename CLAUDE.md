@@ -64,6 +64,8 @@ shadcn/ui: если `ui.shadcn.com` недоступен, исходники к�
 - `npm run dev` — локальная разработка
 - `npm run build` — сборка (падает, если пусты константы `src/lib/legal.ts`)
 - `npm run lint` — линтинг; `npm run typecheck` — проверка типов (`next typegen` + `tsc`; без typegen падает на `LayoutProps`)
+- `npm test` — модульные тесты (встроенный `node:test`, без БД)
+- `CATALOG_FIXTURES=1 npm run dev` — витрина на демо-данных без Supabase (только dev; в production-сборку не попадает)
 - `npx supabase db push` — применить миграции
 - `npx tsx scripts/set-telegram-webhook.ts` — регистрация webhook бота
 

@@ -20,6 +20,16 @@ describe("wheelFitsVehicle (5.5, копия find_wheels_for_vehicle)", () => {
     assert.deepEqual(wheelFitsVehicle(wheelRow({ seat_type: "ball_r13" }), audi), { fits: true, needs_hub_rings: false });
     assert.deepEqual(wheelFitsVehicle(wheelRow({ center_bore_mm: 66.8 }), G30), { fits: true, needs_hub_rings: false });
   });
+  it("граница ЦО в десятых долях: 66.9 на 66.6 (разница 0.3) — только с кольцами", () => {
+    assert.equal(wheelFitsVehicle(wheelRow({ center_bore_mm: 66.9 }), G30).fits, false);
+    assert.deepEqual(wheelFitsVehicle(wheelRow({ center_bore_mm: 66.9, includes_hub_rings: true }), G30), { fits: true, needs_hub_rings: true });
+  });
+  it("66.8 с кольцами в комплекте: разница 0.2 — кольца не нужны (needs_hub_rings = false)", () => {
+    assert.deepEqual(wheelFitsVehicle(wheelRow({ center_bore_mm: 66.8, includes_hub_rings: true }), G30), { fits: true, needs_hub_rings: false });
+  });
+  it("ЦО на 0.1 меньше ЦО авто (66.5 на 66.6) — не подходит даже с кольцами", () => {
+    assert.equal(wheelFitsVehicle(wheelRow({ center_bore_mm: 66.5, includes_hub_rings: true }), G30).fits, false);
+  });
   it("ЦО больше > 0.2 — только с кольцами, тогда needs_hub_rings", () => {
     assert.equal(wheelFitsVehicle(wheelRow({ center_bore_mm: 72.6 }), G30).fits, false);
     assert.deepEqual(wheelFitsVehicle(wheelRow({ center_bore_mm: 72.6, includes_hub_rings: true }), G30), { fits: true, needs_hub_rings: true });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { toPublicProduct } from "@/lib/catalog";
 import { G30, carbonRow, wheelRow } from "@/lib/catalog/__fixtures__/rows";
-import { applyFilters, paginate, pickCovers, sortEntries, sumReserved, toEntries, toListItem } from "@/lib/catalog/listing";
+import { applyFilters, paginate, pickCovers, sortEntries, toEntries, toListItem } from "@/lib/catalog/listing";
 import type { ProductRow } from "@/lib/catalog/rows";
 
 const guest = { atelierId: null };
@@ -15,14 +15,12 @@ const products = [
   mk("c", { price: 200, stock_qty: 5, created_at: "2026-04-01T00:00:00Z", construction: "forged_3pc", diameter_in: 21 }),
   mk("d", { price: 150, availability_mode: "preorder", stock_qty: 0, lead_time_min_days: 21, lead_time_max_days: 35, created_at: "2026-02-01T00:00:00Z", construction: "flow_formed", diameter_in: 20 }),
 ];
-const reserved = sumReserved([{ product_id: "b", quantity: 1 }, { product_id: null, quantity: 4 }, { product_id: "a", quantity: 1 }]);
+// Карта броней приходит готовой из RPC reserved_qty_map (суммирование делает SQL, см. db.test.ts).
+const reserved = new Map([["a", 1], ["b", 1]]);
 const entries = toEntries(products, reserved, null, null);
 const ids = (es: { product: { id: string } }[]) => es.map((e) => e.product.id);
 
 describe("брони и доступность", () => {
-  it("sumReserved суммирует по товару и пропускает удалённые товары", () => {
-    assert.deepEqual([...reserved.entries()].sort(), [["a", 1], ["b", 1]]);
-  });
   it("available_qty считается с учётом брони", () => {
     assert.equal(entries.find((e) => e.product.id === "a")?.availability.available_qty, 1);
     assert.equal(entries.find((e) => e.product.id === "b")?.availability.status, "out_of_stock");

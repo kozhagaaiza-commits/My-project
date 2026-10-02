@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Next.js 16: proxy.ts вместо middleware.ts (Чертёж, Блок 0 «Маршруты», Блок 5.7 «Сессия»).
+// Обновляет сессию Supabase (refresh токена → Set-Cookie) на защищённых страницах, на /api/* (кроме
+// webhooks/cron) и на страницах витрины (/, /wheels, /carbon, /product/*, /cart, /orders/*): там Server
+// Components показывают price_atelier одобренному ателье (BR-10), и сессия должна жить и на витрине.
+// Защитные редиректы — только /admin/* и /account; витрина и API пропускаются всегда.
 // env.ts здесь НЕ импортируется (он требует все серверные переменные) — только NEXT_PUBLIC_*.
 // Роль проверяется повторно в layout /admin и в каждом /api/admin/* — proxy не единственная защита.
 
@@ -44,8 +48,12 @@ export async function proxy(request: NextRequest) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    // Без Supabase сессию проверить нельзя: защищённые страницы — на вход, остальное — дальше.
+  // Cookie сессии @supabase/ssr называются sb-<project-ref>-auth-token[.N]. Без них сессии нет:
+  // getUser() и так не ходит в сеть (auth-js без access_token сразу возвращает AuthSessionMissingError),
+  // но ранний выход не создаёт клиент на каждый гостевой запрос к витрине.
+  const hasSession = request.cookies.getAll().some((c) => c.name.startsWith("sb-"));
+  if (!url || !anonKey || !hasSession) {
+    // Сессии нет или её нельзя проверить: защищённые страницы — на вход, остальное — дальше.
     if (isAdminPage) return loginRedirect(request, adminNext, "/admin");
     if (isAccountPage) return loginRedirect(request, "/account", "/account");
     return NextResponse.next();
@@ -99,6 +107,12 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
+    "/wheels/:path*",
+    "/carbon/:path*",
+    "/product/:path*",
+    "/cart/:path*",
+    "/orders/:path*",
     "/account/:path*",
     "/admin/:path*",
     "/atelier/:path*",
