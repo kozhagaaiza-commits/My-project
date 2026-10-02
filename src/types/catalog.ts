@@ -36,7 +36,8 @@ export interface Availability {
   status: AvailabilityStatus;
   label: string;
   delivery_text: string | null;
-  lead_time?: { min_days: number; max_days: number } | null; // только в карточке товара
+  // Карточка: всегда (null для stock). Список: только для preorder (дополнение к JSON Чертежа — UI «Под заказ · 21–35 дней»).
+  lead_time?: { min_days: number; max_days: number } | null;
 }
 
 export interface ListFitment {
@@ -116,6 +117,7 @@ export interface ProductDetail {
   images: Array<ProductImage & { sort_order: number }>;
   fitment: DetailFitment | null;
   compatible_vehicles: string[] | null; // для карбона; для дисков null
+  status?: "draft" | "active" | "archived"; // только для admin (draft/archived карточки видны админу)
 }
 
 /** Параметры GET /api/products (Zod-схема productsQuery — в src/lib/schemas/catalog.ts). */
@@ -132,6 +134,8 @@ export interface ProductsQuery {
 /** Кто смотрит каталог: определяет, показывать ли price_atelier (BR-10). */
 export interface CatalogContext {
   atelierId: string | null;
+  /** Сессия role = admin: карточка доступна для draft/archived (с полем status). */
+  isAdmin?: boolean;
 }
 
 export type ListProductsResult =
