@@ -1,26 +1,57 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-silver: var(--silver);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+  --radius-lg: 0.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #0A0A0B;          /* глубокий чёрный */
+  --foreground: #F2F2F3;
+  --card: #141416;                /* графит */
+  --card-foreground: #F2F2F3;
+  --popover: #141416;
+  --popover-foreground: #F2F2F3;
+  --secondary: #1C1C1F;
+  --secondary-foreground: #F2F2F3;
+  --accent: #1C1C1F;
+  --accent-foreground: #F2F2F3;
+  --muted: #1C1C1F;
+  --muted-foreground: #8A8A93;
+  --border: #2A2A2E;
+  --input: #2A2A2E;
+  --ring: #C0C4CC;
+  --silver: #C0C4CC;              /* серебро / титан — второстепенные акценты, бейджи */
+  --primary: #E6FF00;             /* кислотно-жёлтый — ТОЛЬКО кнопки основного действия */
+  --primary-foreground: #0A0A0B;
+  --success: #3DDC84;             /* только точка «В наличии» */
+  --destructive: #FF4D4F;
+  --radius: 0.5rem;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+html { color-scheme: dark; }
+body { background: var(--background); color: var(--foreground); }

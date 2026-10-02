@@ -7,15 +7,38 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
-import { useTheme } from "next-themes"
+import { useSyncExternalStore } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
-const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+const MOBILE_QUERY = "(max-width: 767px)" // mobile < 768px (Блок 4.0)
+
+function subscribeMobile(onChange: () => void) {
+  const mql = window.matchMedia(MOBILE_QUERY)
+  mql.addEventListener("change", onChange)
+  return () => mql.removeEventListener("change", onChange)
+}
+
+function useIsMobile() {
+  return useSyncExternalStore(
+    subscribeMobile,
+    () => window.matchMedia(MOBILE_QUERY).matches,
+    () => false
+  )
+}
+
+interface AppToasterProps extends ToasterProps {
+  /** Позиция тостов на mobile (< 768px); Блок 4.0: bottom-center. */
+  mobilePosition?: ToasterProps["position"]
+}
+
+// Тема одна — тёмная (Блок 4.0), поэтому useTheme / next-themes не используются.
+const Toaster = ({ mobilePosition, position, ...props }: AppToasterProps) => {
+  const isMobile = useIsMobile()
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="dark"
+      position={isMobile && mobilePosition ? mobilePosition : position}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

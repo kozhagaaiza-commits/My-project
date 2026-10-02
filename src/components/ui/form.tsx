@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import type { Label as LabelPrimitive } from "radix-ui"
 import { Slot } from "radix-ui"
 import {
@@ -14,7 +14,7 @@ import {
   type FieldValues,
 } from "react-hook-form"
 
-import { Label } from "@/registry/new-york-v4/ui/label"
+import { Label } from "@/components/ui/label"
 
 const Form = FormProvider
 
