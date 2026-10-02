@@ -17,6 +17,7 @@ const serverSchema = z.object({
   SMTP_USER: z.email(),
   SMTP_PASSWORD: z.string().min(8),
   CRON_SECRET: z.string().min(32),
+  ORDER_TOKEN_SECRET: z.string().min(32), // HMAC-ключ токена заказа (A28), случайная строка 32+ символа
   NEXT_PUBLIC_YM_COUNTER_ID: z.string().regex(/^\d*$/).default(""),
 });
 
