@@ -198,7 +198,7 @@ describe("processPaymentObject: двойная оплата (Edge Case 36)", () 
   }
 
   it("второй succeeded → полный автоматический возврат ЭТОГО платежа, needs_attention, admin_attention + customer_refund", async () => {
-    const { a, b, pa, pb } = await twoPaid();
+    const { b, pa, pb } = await twoPaid();
     assert.equal((await processPaymentObjectWith(deps, pa)).kind, "paid");
     notes.length = 0;
     fake.requests.length = 0;
@@ -234,7 +234,6 @@ describe("processPaymentObject: двойная оплата (Edge Case 36)", () 
     assert.equal(attention.payload.kind, "duplicate_payment");
     assert.match(attention.payload.reason, /оформлен автоматический возврат/);
     assert.equal(repo.markPaidCalls.length, 2, "второй платёж тоже прошёл через mark_order_paid (already_paid)");
-    void a;
   });
 
   it("идемпотентность: повтор второго и повторная доставка ПЕРВОГО не создают возвратов и уведомлений", async () => {
@@ -287,7 +286,9 @@ describe("processPaymentObject: двойная оплата (Edge Case 36)", () 
     assert.deepEqual(templates(), ["admin_attention"]);
 
     const ykRefundId = repo.refunds[0].yookassa_refund_id ?? "";
-    fake.refunds.get(ykRefundId)!.status = "succeeded";
+    const stored = fake.refunds.get(ykRefundId);
+    assert.ok(stored);
+    stored.status = "succeeded";
     const r = await yk.getRefund(ykRefundId);
     assert.deepEqual(await processRefundObjectWith(deps, r), { kind: "refund_succeeded", refundId: repo.refunds[0].id });
     assert.equal(repo.refunds[0].status, "succeeded");

@@ -68,7 +68,12 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
     this.maybeFail("getOrder");
     const o = this.orders.get(orderId);
     if (!o) return null;
-    const { needs_attention: _n, attention_reason: _a, paid_at: _p, stockShortage: _s, ...view } = o;
+    const view: OrderForPayment = {
+      id: o.id, number: o.number, status: o.status, kind: o.kind, total: o.total, reserved_until: o.reserved_until,
+      customer_email: o.customer_email, customer_phone: o.customer_phone, client_request_id: o.client_request_id,
+      delivery_method: o.delivery_method, delivery_city: o.delivery_city, delivery_address: o.delivery_address,
+      cdek_pvz_code: o.cdek_pvz_code, vin: o.vin, vehicle: o.vehicle,
+    };
     return structuredClone(view);
   }
   async getOrderItems(orderId: string) { this.maybeFail("getOrderItems"); return structuredClone(this.items.get(orderId) ?? []); }
