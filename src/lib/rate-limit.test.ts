@@ -8,6 +8,7 @@ const TEST_ENV: Record<string, string> = {
   YOOKASSA_SECRET_KEY: "test_secret_key", TELEGRAM_BOT_TOKEN: `123456:${"A".repeat(35)}`, TELEGRAM_BOT_USERNAME: "forgecarbon_bot",
   TELEGRAM_WEBHOOK_SECRET: "w".repeat(32), TELEGRAM_ADMIN_CHAT_ID: "-100123", SMTP_HOST: "smtp.yandex.ru", SMTP_PORT: "465",
   SMTP_USER: "orders@forgecarbon.ru", SMTP_PASSWORD: "password1", CRON_SECRET: "c".repeat(32),
+  ORDER_TOKEN_SECRET: "o".repeat(40),
 };
 
 let mod: typeof import("@/lib/rate-limit");
@@ -28,6 +29,17 @@ describe("rate limit (5.10)", () => {
   });
   it("лимит проверки корзины — 60 за 60 с (5.10)", () => {
     assert.deepEqual(mod.RATE_LIMITS.cart, { limit: 60, windowSeconds: 60 });
+  });
+  it("лимиты заказа и оплаты — 5/600 с на IP и 10/600 с на заказ (5.10)", () => {
+    assert.deepEqual(mod.RATE_LIMITS.orders, { limit: 5, windowSeconds: 600 });
+    assert.deepEqual(mod.RATE_LIMITS.pay, { limit: 10, windowSeconds: 600 });
+  });
+  it("429 POST /api/orders: текст Блока 3 и Retry-After 600", async () => {
+    const res = mod.rateLimitedResponse(600, mod.ORDERS_RATE_LIMITED_MESSAGE);
+    assert.equal(res.headers.get("Retry-After"), "600");
+    assert.deepEqual(await res.json(), {
+      error: { code: "RATE_LIMITED", message: "Слишком много попыток оформления. Повторите через 10 минут", details: { retry_after_seconds: 600 } },
+    });
   });
   it("429: JSON из 3.0 и Retry-After", async () => {
     const res = mod.rateLimitedResponse(60);

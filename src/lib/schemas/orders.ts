@@ -42,3 +42,7 @@ export const createOrderBody = z.object({
 });
 
 export type CreateOrderBody = z.infer<typeof createOrderBody>;
+
+// GET /api/orders/[number]?t=<token> (Блок 3) — дословно; используются и POST /api/orders/[number]/pay.
+export const orderParams = z.object({ number: z.string().regex(/^FC-\d{2}-\d{6}$/) });
+export const orderTokenQuery = z.object({ t: z.string().regex(/^[A-Za-z0-9_-]{32}$/).optional() });

@@ -61,6 +61,7 @@ SMTP_USER=orders@forgecarbon.ru                               # ящик на Я
 SMTP_PASSWORD=                                                # пароль приложения Яндекса
 CRON_SECRET=                                                  # случайная строка 32+ символа
 NEXT_PUBLIC_YM_COUNTER_ID=                                    # номер счётчика Яндекс Метрики
+ORDER_TOKEN_SECRET=                                           # случайная строка 32+ символа, HMAC-ключ токена заказа (A28)
 ```
 
 `src/lib/env.ts`:
@@ -84,6 +85,7 @@ const serverSchema = z.object({
   SMTP_USER: z.email(),
   SMTP_PASSWORD: z.string().min(8),
   CRON_SECRET: z.string().min(32),
+  ORDER_TOKEN_SECRET: z.string().min(32), // HMAC-ключ токена заказа (A28), случайная строка 32+ символа
   NEXT_PUBLIC_YM_COUNTER_ID: z.string().regex(/^\d*$/).default(""),
 });
 
@@ -2133,10 +2135,10 @@ export const createOrderBody = z.object({
 ```
 
 **Алгоритм обработчика:**
-1. `check_rate_limit('orders:' + ip, 5, 600)`; `ip` = первый адрес из заголовка `x-forwarded-for`.
+1. `check_rate_limit('orders:' + ip, 5, 600)`; `ip` = первый адрес из заголовка `x-forwarded-for`. При сбое хранилища лимитов запрос не пропускается — `500 INTERNAL_ERROR` (fail-closed, Edge Case 27, A29).
 2. `safeParse` тела.
-3. `ctx = await getSessionContext()`.
-4. `token = randomBytes(24).toString("base64url")` (32 символа), `token_hash = sha256(token)` в hex.
+3. `ctx = await getSessionContext()`. BR-18: если на `customer.email` уже есть 3 заказа `pending_payment` с `reserved_until > now()` (без заказа с этим же `client_request_id`) → `429 RATE_LIMITED` «У вас уже есть неоплаченные заказы. Оплатите или дождитесь отмены через 30 минут», `details.retry_after_seconds = 1800`, заголовок `Retry-After: 1800` (A29).
+4. `token = orderToken(client_request_id)` — первые 32 символа base64url от HMAC-SHA256(`ORDER_TOKEN_SECRET`, `client_request_id` в нижнем регистре); `token_hash = sha256(token)` в hex. Токен детерминирован (A28): повтор запроса с тем же `client_request_id` получает тот же токен к тому же хэшу, а сервер может восстановить ссылку на заказ для письма и `return_url`.
 5. `adminClient.rpc("create_order", { p_order, p_items })`. Ошибки Postgres с `message` из списка в 2.14 переводятся в коды ниже. `DUPLICATE_ITEMS` (повтор `product_id` в позициях) → `400 VALIDATION_ERROR` «Один товар — одна позиция» (обычно перехватывается Zod раньше).
 6. Создание платежа ЮKassa (`createPayment` из Блока 5, `Idempotence-Key = "order_" + order_id + "_1"`), сохранение в `payments`.
 7. Ответ 201.
@@ -4179,7 +4181,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 - **Секреты:** только в env Vercel; `NEXT_PUBLIC_*` содержат только публичные значения; `.env*` в `.gitignore`.
 - **Заголовки** (`next.config.ts` → `headers()` для `/(.*)`): `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Strict-Transport-Security: max-age=63072000; includeSubDomains`.
 - **Открытый редирект:** параметр `next` принимается только если начинается с `/` и не с `//`.
-- **Токен заказа:** 24 случайных байта (`crypto.randomBytes`) → base64url (32 символа); в БД — SHA-256; сравнение `timingSafeEqual`; неверный токен и несуществующий заказ дают одинаковый 404.
+- **Токен заказа** (`src/lib/orders/token.ts`, A28): `orderToken(client_request_id)` = первые 32 символа base64url от HMAC-SHA256(`ORDER_TOKEN_SECRET`, `client_request_id` в нижнем регистре) — 192 бита, без секрета сервера не вычисляется даже по данным БД; в БД по-прежнему только SHA-256 токена (`orders.public_token_hash`); сравнение `timingSafeEqual`; неверный токен и несуществующий заказ дают одинаковый 404. Токен детерминирован, чтобы сервер мог восстановить ссылку на заказ (письмо об оплате, `return_url`) и чтобы повтор `POST /api/orders` с тем же `client_request_id` (Edge Case 1) возвращал рабочую ссылку.
 
 ### 5.11 Персональные данные (152-ФЗ)
 
@@ -4321,6 +4323,8 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A25 | Обновление сессии на витрине | `src/proxy.ts` обновляет сессию также на `/`, `/wheels`, `/carbon`, `/product/:path*`, `/cart`, `/orders/:path*` (5.7) | Иначе ателье теряет сессию и видит розничные цены вместо цен ателье (BR-10); гостям без cookie сессии сетевых вызовов не добавляет (решение оркестратора, День 2) |
 | A26 | Сортировка каталога по цене для ателье | Для одобренного ателье при `FEATURE_ATELIER` сортировки `price_asc`/`price_desc` идут по его цене (`price_atelier ?? price`); для остальных — по `price` | Ателье видит и платит свою цену (BR-10); сортировка по рознице показывала бы порядок, не совпадающий с ценами на экране (решение владельца, День 3) |
 | A27 | Проверка `Origin` (5.10) в разработке и без заголовка | `assertSameOrigin` (`src/lib/csrf.ts`): кроме `new URL(NEXT_PUBLIC_SITE_URL).origin` при `NODE_ENV !== "production"` принимаются `http://localhost:<любой порт>` и `http://127.0.0.1:<любой порт>`; запрос без `Origin` (или `Origin: null`) → `403 FORBIDDEN` «Недопустимый источник запроса» | Dev-серверы запускаются на разных портах; браузер шлёт `Origin` в каждом `POST/PATCH/PUT/DELETE`, его отсутствие означает не наш фронтенд (решение оркестратора, День 3) |
+| A28 | Токен доступа к заказу | Детерминированный: `orderToken(client_request_id)` = первые 32 символа base64url HMAC-SHA256(`ORDER_TOKEN_SECRET`, `client_request_id`); в БД — только SHA-256 токена; новая переменная окружения `ORDER_TOKEN_SECRET` (32+ символа) | При случайном токене (`randomBytes`) и хэше в БД сервер не может восстановить ссылку на заказ для письма об оплате и `return_url`; повтор `POST /api/orders` с тем же `client_request_id` возвращал бы уже созданный заказ с новым токеном, не подходящим к сохранённому хэшу — ссылка из ответа давала бы 404 (найдено в День 4) |
+| A29 | Защита броней в `POST /api/orders` | Rate limit `orders:<ip>` (5 / 600 с) — fail-closed: при сбое `check_rate_limit` ответ `500`, заказ не создаётся; BR-18 — `429 RATE_LIMITED` с `retry_after_seconds: 1800` и `Retry-After: 1800` (бронь 30 минут), заказ с тем же `client_request_id` в лимит не входит | Пропуск при сбое лимитов (fail-open, как у каталога) позволил бы боту держать остатки бронями (Edge Case 27); повтор того же запроса после обрыва сети (Edge Case 1) не должен упираться в BR-18 (решение оркестратора, День 4) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).

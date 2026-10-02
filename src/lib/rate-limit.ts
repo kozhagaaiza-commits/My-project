@@ -11,7 +11,16 @@ export const RATE_LIMITS = {
   catalog: { limit: 120, windowSeconds: 60 },
   /** POST /api/cart/validate — 60 на IP за 60 с. Ключ `cart:<ip>`. */
   cart: { limit: 60, windowSeconds: 60 },
+  /** POST /api/orders — 5 на IP за 600 с. Ключ `orders:<ip>`. fail-closed (Edge Case 27). */
+  orders: { limit: 5, windowSeconds: 600 },
+  /** POST /api/orders/[number]/pay — 10 на заказ за 600 с. Ключ `pay:<number>`. fail-closed. */
+  pay: { limit: 10, windowSeconds: 600 },
 } as const;
+
+/** Текст 3.0 для 429 по умолчанию. */
+export const RATE_LIMITED_MESSAGE = "Слишком много запросов. Повторите через минуту";
+/** 429 POST /api/orders (Блок 3). */
+export const ORDERS_RATE_LIMITED_MESSAGE = "Слишком много попыток оформления. Повторите через 10 минут";
 
 /** Первый адрес из x-forwarded-for (его ставит Vercel), иначе "unknown". */
 export function getClientIp(request: Request): string {
@@ -43,9 +52,9 @@ export async function checkRateLimit(key: string, limit: number, windowSeconds: 
   }
 }
 
-/** 429 из 3.0 + заголовок Retry-After. */
-export function rateLimitedResponse(retryAfterSeconds: number) {
-  const res = apiError("RATE_LIMITED", "Слишком много запросов. Повторите через минуту", 429, { retry_after_seconds: retryAfterSeconds });
+/** 429 из 3.0 (или текст эндпоинта из Блока 3) + заголовок Retry-After. */
+export function rateLimitedResponse(retryAfterSeconds: number, message: string = RATE_LIMITED_MESSAGE) {
+  const res = apiError("RATE_LIMITED", message, 429, { retry_after_seconds: retryAfterSeconds });
   res.headers.set("Retry-After", String(retryAfterSeconds));
   return res;
 }
@@ -64,5 +73,25 @@ export async function limitCatalog(request: Request) {
 export async function limitCart(request: Request) {
   const { limit, windowSeconds } = RATE_LIMITS.cart;
   const allowed = await checkRateLimit(`cart:${getClientIp(request)}`, limit, windowSeconds, { failOpen: true });
+  return allowed ? null : rateLimitedResponse(windowSeconds);
+}
+
+/**
+ * Лимит POST /api/orders (5.10): 5 заказов / 600 с на IP, ключ `orders:<ip>`. fail-CLOSED: при сбое таблицы лимитов
+ * checkRateLimit бросает исключение (→ 500), запрос не пропускается — иначе бот держит брони без ограничений (Edge Case 27).
+ */
+export async function limitOrders(request: Request) {
+  const { limit, windowSeconds } = RATE_LIMITS.orders;
+  const allowed = await checkRateLimit(`orders:${getClientIp(request)}`, limit, windowSeconds);
+  return allowed ? null : rateLimitedResponse(windowSeconds, ORDERS_RATE_LIMITED_MESSAGE);
+}
+
+/**
+ * Лимит POST /api/orders/[number]/pay (5.10): 10 / 600 с на заказ, ключ `pay:<number>` (номер уже проверен регэкспом).
+ * fail-closed, как у заказов: каждый вызов может создать платёж ЮKassa; лимит на заказ ограничивает и перебор токена.
+ */
+export async function limitPay(orderNumber: string) {
+  const { limit, windowSeconds } = RATE_LIMITS.pay;
+  const allowed = await checkRateLimit(`pay:${orderNumber}`, limit, windowSeconds);
   return allowed ? null : rateLimitedResponse(windowSeconds);
 }

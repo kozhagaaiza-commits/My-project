@@ -14,6 +14,7 @@ const TEST_ENV: Record<string, string> = {
   YOOKASSA_SECRET_KEY: "test_secret_key", TELEGRAM_BOT_TOKEN: `123456:${"A".repeat(35)}`, TELEGRAM_BOT_USERNAME: "forgecarbon_bot",
   TELEGRAM_WEBHOOK_SECRET: "w".repeat(32), TELEGRAM_ADMIN_CHAT_ID: "-100123", SMTP_HOST: "smtp.yandex.ru", SMTP_PORT: "465",
   SMTP_USER: "orders@forgecarbon.ru", SMTP_PASSWORD: "password1", CRON_SECRET: "c".repeat(32),
+  ORDER_TOKEN_SECRET: "o".repeat(40),
 };
 let rateLimitedResponse: (retryAfterSeconds: number) => Response;
 before(async () => {
