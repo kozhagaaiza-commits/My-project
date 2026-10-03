@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   MAX_POLL_FAILURES, POLL_INTERVAL_MS, POLL_WINDOW_MS, isPaidStatus, nextPollStep, paymentGoalFlagKey,
-  shouldPoll, shouldReachPaymentGoal,
+  retryAfterDelayMs, shouldPoll, shouldReachPaymentGoal,
 } from "@/lib/order-page-poll";
 
 const ok = (status: Parameters<typeof nextPollStep>[3] & string) => ({ ok: true as const, status });
@@ -67,6 +67,56 @@ describe("nextPollStep", () => {
       if (step.kind === "continue") progress = step.progress;
     });
     assert.deepEqual(kinds, ["continue", "continue", "changed"]);
+  });
+});
+
+describe("HTTP 429 в опросе (L8)", () => {
+  const limited = (retryAfterMs: number) => ({ ok: false as const, rateLimited: true as const, retryAfterMs });
+
+  it("retryAfterDelayMs: секунды, по умолчанию 5 с, потолок 15 с, минимум 1 с", () => {
+    assert.equal(retryAfterDelayMs(null), 5000);
+    assert.equal(retryAfterDelayMs(""), 5000);
+    assert.equal(retryAfterDelayMs("abc"), 5000);
+    assert.equal(retryAfterDelayMs("7"), 7000);
+    assert.equal(retryAfterDelayMs("15"), 15000);
+    assert.equal(retryAfterDelayMs("120"), 15000);
+    assert.equal(retryAfterDelayMs("0"), 1000);
+  });
+  it("retryAfterDelayMs: HTTP-дата", () => {
+    const now = Date.parse("2026-10-03T09:00:00Z");
+    assert.equal(retryAfterDelayMs("Sat, 03 Oct 2026 09:00:09 GMT", now), 9000);
+    assert.equal(retryAfterDelayMs("Sat, 03 Oct 2026 10:00:00 GMT", now), 15000);
+    assert.equal(retryAfterDelayMs("Sat, 03 Oct 2026 08:00:00 GMT", now), 1000);
+  });
+  it("429 не увеличивает счётчик неудач и задаёт паузу", () => {
+    assert.deepEqual(nextPollStep({ failures: 2 }, limited(7000), 9000), {
+      kind: "continue", progress: { failures: 2 }, delayMs: 7000,
+    });
+  });
+  it("сколько бы 429 ни пришло подряд — failed не наступает", () => {
+    let progress = { failures: 0 };
+    for (let i = 0; i < 10; i++) {
+      const step = nextPollStep(progress, limited(1000), i * 1000);
+      assert.equal(step.kind, "continue");
+      if (step.kind === "continue") progress = step.progress;
+    }
+    assert.deepEqual(progress, { failures: 0 });
+  });
+  it("429 между двумя неудачами не сбрасывает счётчик: 3-я настоящая неудача → failed", () => {
+    let progress = { failures: 0 };
+    const results = [fail, limited(5000), fail];
+    const kinds: string[] = [];
+    results.forEach((r, i) => {
+      const step = nextPollStep(progress, r, (i + 1) * 3000);
+      kinds.push(step.kind);
+      if (step.kind === "continue") progress = step.progress;
+    });
+    assert.deepEqual(kinds, ["continue", "continue", "continue"]);
+    assert.equal(nextPollStep(progress, fail, 12000).kind, "failed");
+  });
+  it("потолок 60 с сохраняется: пауза за пределы окна → timeout", () => {
+    assert.deepEqual(nextPollStep({ failures: 0 }, limited(5000), POLL_WINDOW_MS - 5000), { kind: "timeout" });
+    assert.equal(nextPollStep({ failures: 0 }, limited(5000), POLL_WINDOW_MS - 5001).kind, "continue");
   });
 });
 

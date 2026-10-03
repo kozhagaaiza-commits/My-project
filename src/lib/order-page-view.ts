@@ -55,3 +55,17 @@ export const cancelledText = (reason: string | null): string => (reason ? `За�
 
 export const refundedText = (formatted: string | null): string =>
   `Деньги возвращены${formatted ? `: ${formatted}` : ""}. Срок зачисления зависит от банка, обычно до 10 рабочих дней`;
+
+/** Частичный возврат (Edge Case 38): сумма возвращена, а заказ не refunded и не cancelled. */
+export const isPartiallyRefunded = (view: OrderView): boolean =>
+  view.refunded_amount_formatted !== null && view.status !== "refunded" && view.status !== "cancelled";
+
+export const partialRefundText = (formatted: string): string =>
+  `Возвращено: ${formatted}. Срок зачисления зависит от банка, обычно до 10 рабочих дней`;
+
+export const UNPAID_AFTER_PAYMENT_TEXT = "Оплата пока не поступила";
+export const UNPAID_NEUTRAL_TEXT = "Заказ ожидает оплаты";
+
+/** Заголовок блока оплаты: «не поступила» — только после возврата с ЮKassa, иначе нейтрально. */
+export const unpaidBannerText = (fromPayment: boolean): string =>
+  fromPayment ? UNPAID_AFTER_PAYMENT_TEXT : UNPAID_NEUTRAL_TEXT;

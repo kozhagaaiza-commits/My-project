@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { fixtureOrderViews } from "@/lib/order-page-fixtures";
 import {
-  cancelledText, deliveryPlace, expectedDateText, hasTimelineProgress, markOrderExpired, refundedText, stepStates,
+  cancelledText, deliveryPlace, expectedDateText, hasTimelineProgress, isPartiallyRefunded, markOrderExpired, partialRefundText,
+  refundedText, stepStates, unpaidBannerText,
 } from "@/lib/order-page-view";
 
 const NOW = new Date("2026-10-03T09:00:00.000Z");
@@ -63,6 +64,21 @@ describe("тексты состояний", () => {
       "Деньги возвращены: 133 700 ₽. Срок зачисления зависит от банка, обычно до 10 рабочих дней",
     );
     assert.equal(refundedText(null), "Деньги возвращены. Срок зачисления зависит от банка, обычно до 10 рабочих дней");
+  });
+  it("частичный возврат (Edge Case 38): текст и условие", () => {
+    assert.equal(
+      partialRefundText("33 400 ₽"),
+      "Возвращено: 33 400 ₽. Срок зачисления зависит от банка, обычно до 10 рабочих дней",
+    );
+    const partial = { ...v(1), refunded_amount_formatted: "33 400 ₽" };
+    assert.equal(isPartiallyRefunded(partial), true);
+    assert.equal(isPartiallyRefunded(v(1)), false);
+    assert.equal(isPartiallyRefunded(v(6)), false); // refunded — полный возврат
+    assert.equal(isPartiallyRefunded({ ...partial, status: "cancelled" }), false);
+  });
+  it("блок оплаты: «не поступила» только после возврата с ЮKassa", () => {
+    assert.equal(unpaidBannerText(true), "Оплата пока не поступила");
+    assert.equal(unpaidBannerText(false), "Заказ ожидает оплаты");
   });
   it("markOrderExpired → cancelled с причиной, оплата недоступна", () => {
     const next = markOrderExpired(v(4));

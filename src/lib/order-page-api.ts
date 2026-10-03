@@ -1,5 +1,6 @@
 // Клиент GET /api/orders/[number]?t= и POST /api/orders/[number]/pay?t= (Чертёж, Блок 3). Только для браузера;
 // fetch можно подменить в тестах. Ответ разбирается без доверия к форме: чужая/битая структура → ошибка.
+import { retryAfterDelayMs } from "@/lib/order-page-poll";
 import { safeNavigationUrl, type NavigationEnv } from "@/lib/checkout-response";
 import type { OrderView } from "@/types/order-view";
 
@@ -27,7 +28,11 @@ export function isOrderView(v: unknown): v is OrderView {
 export const orderUrl = (number: string, token: string | null, path = ""): string =>
   `/api/orders/${encodeURIComponent(number)}${path}${token ? `?t=${encodeURIComponent(token)}` : ""}`;
 
-export type FetchOrderResult = { ok: true; view: OrderView } | { ok: false };
+export type FetchOrderResult =
+  | { ok: true; view: OrderView }
+  | { ok: false; rateLimited?: false }
+  /** 429: лимит запросов — не сбой; retryAfterMs из Retry-After (5 с по умолчанию, максимум 15 с). */
+  | { ok: false; rateLimited: true; retryAfterMs: number };
 
 async function withTimeout<T>(
   timeoutMs: number, signal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>,
@@ -45,7 +50,7 @@ async function withTimeout<T>(
   }
 }
 
-/** Опрос: любая неудача (сеть, не-2xx, нечитаемый ответ) → { ok: false }. */
+/** Опрос: сеть, не-2xx, нечитаемый ответ → { ok: false }; 429 → { ok: false, rateLimited, retryAfterMs }. */
 export async function fetchOrderView(
   number: string, token: string | null,
   options: { signal?: AbortSignal; fetchImpl?: FetchLike; timeoutMs?: number } = {},
@@ -54,6 +59,9 @@ export async function fetchOrderView(
   try {
     return await withTimeout(timeoutMs, signal, async (s) => {
       const res = await fetchImpl(orderUrl(number, token), { cache: "no-store", signal: s });
+      if (res.status === 429) {
+        return { ok: false, rateLimited: true, retryAfterMs: retryAfterDelayMs(res.headers.get("Retry-After")) } as const;
+      }
       if (!res.ok) return { ok: false } as const;
       const body: unknown = await res.json();
       return isRecord(body) && isOrderView(body.data) ? ({ ok: true, view: body.data } as const) : ({ ok: false } as const);

@@ -40,6 +40,22 @@ describe("fetchOrderView (опрос)", () => {
     ];
     for (const fetchImpl of cases) assert.deepEqual(await fetchOrderView("FC-26-000001", TOKEN, { fetchImpl }), { ok: false });
   });
+  it("429 → rateLimited с Retry-After (по умолчанию 5 с, максимум 15 с)", async () => {
+    const limited = (headers: Record<string, string>) => async () =>
+      new Response("{}", { status: 429, headers });
+    assert.deepEqual(
+      await fetchOrderView("FC-26-000001", TOKEN, { fetchImpl: limited({ "Retry-After": "8" }) }),
+      { ok: false, rateLimited: true, retryAfterMs: 8000 },
+    );
+    assert.deepEqual(
+      await fetchOrderView("FC-26-000001", TOKEN, { fetchImpl: limited({}) }),
+      { ok: false, rateLimited: true, retryAfterMs: 5000 },
+    );
+    assert.deepEqual(
+      await fetchOrderView("FC-26-000001", TOKEN, { fetchImpl: limited({ "Retry-After": "300" }) }),
+      { ok: false, rateLimited: true, retryAfterMs: 15000 },
+    );
+  });
   it("isOrderView отбрасывает неполные объекты", () => {
     assert.equal(isOrderView(VIEW), true);
     assert.equal(isOrderView(null), false);

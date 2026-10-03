@@ -164,6 +164,11 @@ describe("resolveTelegramBaseUrl", () => {
     assert.equal(resolveTelegramBaseUrl({ NODE_ENV: "test", TELEGRAM_API_URL: "http://127.0.0.1:9999/" }), "http://127.0.0.1:9999");
     assert.equal(resolveTelegramBaseUrl({ NODE_ENV: "development" }), TELEGRAM_API_URL);
   });
+  it("вне development/test (production, staging, пусто) TELEGRAM_API_URL игнорируется", () => {
+    for (const NODE_ENV of ["staging", undefined]) {
+      assert.equal(resolveTelegramBaseUrl({ NODE_ENV, TELEGRAM_API_URL: "http://evil.test" }), "https://api.telegram.org");
+    }
+  });
   it("в production TELEGRAM_API_URL игнорируется", () => {
     assert.equal(resolveTelegramBaseUrl({ NODE_ENV: "production", TELEGRAM_API_URL: "http://evil.test" }), "https://api.telegram.org");
   });

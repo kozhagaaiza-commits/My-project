@@ -9,7 +9,7 @@ import { z } from "zod";
 //  - 429: пауза retry_after секунд, если ≤ 5 (и попытка повторяется); иначе kind "rate_limited" — вызывающий ставит в очередь;
 //  - 403 (бот заблокирован) — kind "blocked", без повторов; прочие 4xx — kind "rejected", без повторов;
 //  - ТОКЕН ВХОДИТ В URL: он вырезается из любого текста ошибки (redactSecrets), в логи и last_error не попадает;
-//  - TELEGRAM_API_URL (fake-сервер в тестах) учитывается только при NODE_ENV !== "production";
+//  - TELEGRAM_API_URL (fake-сервер в тестах) учитывается только при NODE_ENV "development" или "test" (A42);
 //  - экземпляр по умолчанию создаётся лениво: модуль не читает env при импорте.
 
 export const TELEGRAM_API_URL = "https://api.telegram.org";
@@ -86,10 +86,10 @@ export function redactSecrets(text: string, secrets: readonly string[] = []): st
 
 const short = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}…` : s);
 
-/** Базовый URL: TELEGRAM_API_URL переопределяет его только при NODE_ENV !== "production". */
+/** Базовый URL: TELEGRAM_API_URL переопределяет его только при NODE_ENV "development" или "test" (иначе — api.telegram.org). */
 export function resolveTelegramBaseUrl(vars: { NODE_ENV?: string; TELEGRAM_API_URL?: string } = process.env): string {
   const override = vars.TELEGRAM_API_URL?.trim();
-  if (!override || vars.NODE_ENV === "production") return TELEGRAM_API_URL;
+  if (!override || (vars.NODE_ENV !== "development" && vars.NODE_ENV !== "test")) return TELEGRAM_API_URL;
   const url = new URL(override);
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("TELEGRAM_API_URL: только http(s)");
   return override.replace(/\/$/, "");
@@ -158,7 +158,10 @@ let defaultClient: Promise<TelegramClient> | null = null;
 /** Экземпляр по умолчанию из env (env.ts разбирается при первом вызове, а не при импорте модуля). */
 export function getTelegramClient(): Promise<TelegramClient> {
   defaultClient ??= import("@/lib/env")
-    .then(({ env }) => createTelegramClient({ token: env.TELEGRAM_BOT_TOKEN, baseUrl: resolveTelegramBaseUrl() }))
+    .then(({ env }) => createTelegramClient({
+      token: env.TELEGRAM_BOT_TOKEN,
+      baseUrl: resolveTelegramBaseUrl({ NODE_ENV: process.env.NODE_ENV, TELEGRAM_API_URL: env.TELEGRAM_API_URL }),
+    }))
     .catch((err: unknown) => {
       defaultClient = null;
       throw err;

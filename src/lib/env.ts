@@ -12,8 +12,10 @@ const serverSchema = z.object({
   TELEGRAM_BOT_USERNAME: z.string().min(5),
   TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{32,256}$/),
   TELEGRAM_ADMIN_CHAT_ID: z.string().regex(/^-?\d+$/),
-  SMTP_HOST: z.string().min(3),
-  SMTP_PORT: z.coerce.number().int(),
+  SMTP_HOST: z.string().min(3).default("smtp.yandex.ru"), // A42: необязательна, по умолчанию Яндекс (5.9.3)
+  SMTP_PORT: z.coerce.number().int().default(465),
+  // Только dev/test: адрес fake-сервера Telegram. В production игнорируется (resolveTelegramBaseUrl, A42).
+  TELEGRAM_API_URL: z.string().optional(),
   SMTP_USER: z.email(),
   SMTP_PASSWORD: z.string().min(8),
   CRON_SECRET: z.string().min(32),

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchOrderView } from "@/lib/order-page-api";
 import {
-  POLL_INTERVAL_MS, nextPollStep, shouldPoll, type PollPhase, type PollProgress,
+  POLL_INTERVAL_MS, nextPollStep, shouldPoll, type PollPhase, type PollProgress, type PollResult,
 } from "@/lib/order-page-poll";
 import type { OrderView } from "@/types/order-view";
 
@@ -23,7 +23,7 @@ export interface OrderStatusState {
 /**
  * Состояние страницы заказа. После возврата с ЮKassa и пока заказ pending_payment опрашивает
  * GET /api/orders/[number] каждые 3 с до 60 с (BR-12: сама страница статус не меняет).
- * Ошибка опроса — тихий повтор; 3 подряд — phase = "failed".
+ * Ошибка опроса — тихий повтор; 3 подряд — phase = "failed". 429 — пауза по Retry-After, не неудача.
  */
 export function useOrderStatus({ initial, token, fromPayment }: Options): OrderStatusState {
   const [view, setView] = useState<OrderView>(initial);
@@ -40,13 +40,12 @@ export function useOrderStatus({ initial, token, fromPayment }: Options): OrderS
     const tick = async () => {
       const res = await fetchOrderView(number, token, { signal: controller.signal });
       if (controller.signal.aborted) return;
-      const step = nextPollStep(
-        progress, res.ok ? { ok: true, status: res.view.status } : { ok: false }, Date.now() - startedAt, status,
-      );
+      const result: PollResult = res.ok ? { ok: true, status: res.view.status } : res;
+      const step = nextPollStep(progress, result, Date.now() - startedAt, status);
       if (res.ok) setView(res.view);
       if (step.kind === "continue") {
         progress = step.progress;
-        timer = setTimeout(tick, POLL_INTERVAL_MS);
+        timer = setTimeout(tick, step.delayMs ?? POLL_INTERVAL_MS);
       } else if (step.kind === "timeout") {
         setPhase("unpaid");
       } else if (step.kind === "failed") {

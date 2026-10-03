@@ -7,21 +7,24 @@ import { Button } from "@/components/ui/button";
 import { useNowMs } from "@/hooks/use-now";
 import { ORDER_NOT_PAYABLE_MESSAGE } from "@/lib/order-page-api";
 import { reserveText } from "@/lib/order-page-format";
+import { unpaidBannerText } from "@/lib/order-page-view";
 import { POLL_FAILED_MESSAGE, type PollPhase } from "@/lib/order-page-poll";
 import type { OrderView } from "@/types/order-view";
 
 interface PaymentBannerProps {
   view: OrderView;
   phase: PollPhase;
+  /** Покупатель вернулся с ЮKassa (?from=payment). */
+  fromPayment: boolean;
   paying: boolean;
   onPay: () => void;
 }
 
 /**
  * Блок оплаты для заказа в pending_payment. После возврата с ЮKassa — «Проверяем оплату…» (опрос), затем
- * «Оплата пока не поступила» + единственная жёлтая «Оплатить» и таймер брони. Бронь истекла — «Оформить заново».
+ * «Оплата пока не поступила» (без возврата с ЮKassa — нейтральное «Заказ ожидает оплаты») + единственная жёлтая «Оплатить» и таймер брони. Бронь истекла — «Оформить заново».
  */
-export function PaymentBanner({ view, phase, paying, onPay }: PaymentBannerProps) {
+export function PaymentBanner({ view, phase, fromPayment, paying, onPay }: PaymentBannerProps) {
   const nowMs = useNowMs();
   const now = nowMs === null ? null : new Date(nowMs);
   const timer = now ? reserveText(view.reserved_until, now) : null;
@@ -48,7 +51,7 @@ export function PaymentBanner({ view, phase, paying, onPay }: PaymentBannerProps
     <Alert data-testid="payment-banner-unpaid">
       <CircleAlert aria-hidden />
       <AlertDescription className="text-foreground">
-        <p className="font-medium">{expired ? ORDER_NOT_PAYABLE_MESSAGE : "Оплата пока не поступила"}</p>
+        <p className="font-medium">{expired ? ORDER_NOT_PAYABLE_MESSAGE : unpaidBannerText(fromPayment)}</p>
         {!expired && timer && <p className="text-muted-foreground" data-testid="reserve-timer">{timer}</p>}
         {expired ? (
           <ReorderButton view={view} />

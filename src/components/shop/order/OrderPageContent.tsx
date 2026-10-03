@@ -41,7 +41,7 @@ export function OrderPageContent({ initial, token, fromPayment, botUsername }: O
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 md:gap-6 md:px-6 md:py-8">
       <OrderHeader number={view.number} status={view.status} statusLabel={view.status_label} />
-      {view.status === "pending_payment" && <PaymentBanner view={view} phase={phase} paying={paying} onPay={pay} />}
+      {view.status === "pending_payment" && <PaymentBanner view={view} phase={phase} fromPayment={fromPayment} paying={paying} onPay={pay} />}
       <OrderStateAlert view={view} />
       {view.customer_visible_note && <CustomerNote note={view.customer_visible_note} />}
       <div className="grid gap-5 md:gap-6 lg:grid-cols-12 lg:gap-8">

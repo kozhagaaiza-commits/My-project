@@ -2,7 +2,7 @@ import "server-only";
 import nodemailer from "nodemailer";
 import { SITE_NAME } from "@/lib/config";
 
-// Почта через SMTP Яндекса (Чертёж 5.9.3): nodemailer, smtp.yandex.ru:465 (secure), connectionTimeout 10 с.
+// Почта через SMTP Яндекса (Чертёж 5.9.3): nodemailer, SMTP_HOST:SMTP_PORT (по умолчанию smtp.yandex.ru:465, secure), connectionTimeout 10 с.
 // `from: "ForgeCarbon <SMTP_USER>"`, `replyTo: SMTP_USER`, HTML + текстовая версия.
 // Retry: 2 попытки (паузы 0 / 2 с). Результат — union, исключения наружу не выходят; пароль SMTP в текст ошибки не попадает.
 // Транспорт, from и replyTo берутся лениво: env не разбирается при импорте модуля.
@@ -55,9 +55,9 @@ interface Resolved { transport: MailTransport; from: string; replyTo: string; se
 async function resolveFromEnv(cfg: MailerConfig): Promise<Resolved> {
   const { env } = await import("@/lib/env");
   const transport: MailTransport = cfg.transport ?? nodemailer.createTransport({
-    host: "smtp.yandex.ru",
-    port: 465,
-    secure: true,
+    host: env.SMTP_HOST, // по умолчанию smtp.yandex.ru (A42)
+    port: env.SMTP_PORT, // по умолчанию 465
+    secure: env.SMTP_PORT === 465, // 465 — TLS сразу (5.9.3); иной порт — STARTTLS
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
