@@ -141,6 +141,12 @@ export function createAdminProductsRepo(c: SupabaseClient, service: () => Supaba
       return maybe(rateRow, res, "admin.exchange_rates.latest");
     },
 
+    async rateOnOrBefore(currency, date) {
+      const res = await c.from("exchange_rates").select(RATE_COLUMNS).eq("currency", currency).lte("rate_date", date)
+        .order("rate_date", { ascending: false }).limit(1).maybeSingle();
+      return maybe(rateRow, res, "admin.exchange_rates.onOrBefore");
+    },
+
     async pricingSettings() {
       const res = await c.from("app_settings").select(PRICING_SETTINGS_COLUMNS).eq("id", 1).single();
       const s = maybe(pricingSettingsRow, res, "admin.app_settings.pricing");

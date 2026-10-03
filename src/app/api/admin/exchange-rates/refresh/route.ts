@@ -1,3 +1,4 @@
+import { repriceWithServiceRole } from "@/lib/admin/products/reprice-real";
 import { requireAdminApi } from "@/lib/admin/api-guard";
 import { refreshRates } from "@/lib/cbr";
 import { createExchangeRatesRepo } from "@/lib/cbr-repo";
@@ -11,8 +12,11 @@ export const maxDuration = 60;
 
 const handler = createRefreshRatesHandler({
   requireAdmin: requireAdminApi,
-  // Автопересчёт цен (День 7): передать onNewRates в refreshRates — см. RefreshDeps.
-  refresh: () => refreshRates({ repo: createExchangeRatesRepo(createAdminClient()) }),
+  // Автопересчёт цен (5.4): после вставки нового курса, ошибка хука логируется и загрузку курса не ломает (refreshRates).
+  refresh: () => refreshRates({
+    repo: createExchangeRatesRepo(createAdminClient()),
+    onNewRates: async () => { await repriceWithServiceRole(new Date()); },
+  }),
 });
 
 export async function POST(request: Request) {

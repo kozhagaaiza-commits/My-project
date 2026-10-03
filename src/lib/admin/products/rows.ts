@@ -90,7 +90,7 @@ export const imageRow = z.object({
 export type AdminImageRow = z.infer<typeof imageRow>;
 
 /** Автопересчёт: только поля, нужные для расчёта и отчёта. */
-export const AUTO_PRICE_COLUMNS = "id,title,purchase_currency,purchase_cost,price,price_atelier";
+export const AUTO_PRICE_COLUMNS = "id,title,purchase_currency,purchase_cost,price,price_atelier,price_updated_at";
 export const autoPriceRow = z.object({
   id: z.string(),
   title: z.string(),
@@ -98,6 +98,7 @@ export const autoPriceRow = z.object({
   purchase_cost: z.number().int(),
   price: z.number().int(),
   price_atelier: z.number().int().nullable(),
+  price_updated_at: z.string(),
 });
 export type AutoPriceRow = z.infer<typeof autoPriceRow>;
 

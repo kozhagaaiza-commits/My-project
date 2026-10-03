@@ -169,6 +169,15 @@ export class FakeProductsDb implements AdminProductsRepo {
     this.log("latestRate", currency);
     return this.rates.get(currency) ?? null;
   }
+  /** История курсов для rateOnOrBefore (по умолчанию пуста: берётся текущий курс из rates, если его дата ≤ date). */
+  ratesHistory: RateRow[] = [];
+  async rateOnOrBefore(currency: "USD" | "CNY", date: string) {
+    this.log("rateOnOrBefore", currency, date);
+    const all = [...this.ratesHistory, ...(this.rates.has(currency) ? [this.rates.get(currency) as RateRow] : [])]
+      .filter((r) => r.currency === currency && r.rate_date <= date)
+      .sort((a, b) => (a.rate_date < b.rate_date ? 1 : -1));
+    return all[0] ?? null;
+  }
   async pricingSettings() {
     this.log("pricingSettings");
     return { ...this.settings };
@@ -196,7 +205,7 @@ export class FakeProductsDb implements AdminProductsRepo {
   async listAutoPriced() {
     this.log("listAutoPriced");
     return [...this.products.values()].filter((p) => p.pricing_mode === "auto")
-      .map((p) => ({ id: p.id, title: p.title, purchase_currency: p.purchase_currency, purchase_cost: p.purchase_cost, price: p.price, price_atelier: p.price_atelier }));
+      .map((p) => ({ id: p.id, title: p.title, purchase_currency: p.purchase_currency, purchase_cost: p.purchase_cost, price: p.price, price_atelier: p.price_atelier, price_updated_at: p.price_updated_at }));
   }
   async updateAutoPrice(id: string, oldPrice: number, newPrice: number, at: string) {
     this.log("updateAutoPrice", id, oldPrice, newPrice, at);

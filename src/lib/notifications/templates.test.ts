@@ -96,6 +96,26 @@ describe("шаблоны 5.9.2: Telegram — golden-тексты", () => {
     );
   });
 
+  it("customer_status_changed: изменение срока (A47) — статус, срок и заметка; значения экранируются", () => {
+    const p = buildCustomerStatusChangedPayload({
+      orderNumber: "FC-26-000123", status: "ordered_from_supplier", trackingNumber: null, orderUrl: ORDER_URL,
+      delivery: { expectedReadyAt: "2026-11-12", customerVisibleNote: "Задержка <на> таможне" },
+    });
+    const lines = tg("customer_status_changed", p).split("\n");
+    assert.equal(lines[0], "Заказ FC-26-000123: Заказан у поставщика");
+    assert.equal(lines[1], "Ожидаем на складе к 12 ноября" + (new Date().getUTCFullYear() === 2026 ? "" : " 2026"));
+    assert.equal(lines[2], "Задержка &lt;на&gt; таможне");
+    const m = mail("customer_status_changed", p);
+    assert.match(m.text, /Задержка <на> таможне/);
+    assert.doesNotMatch(m.html, /<на>/);
+    // срок очищен, заметки нет — остаётся только строка статуса
+    const empty = buildCustomerStatusChangedPayload({
+      orderNumber: "FC-26-000123", status: "ordered_from_supplier", trackingNumber: null, orderUrl: null,
+      delivery: { expectedReadyAt: null, customerVisibleNote: null },
+    });
+    assert.equal(tg("customer_status_changed", empty), "Заказ FC-26-000123: Заказан у поставщика");
+  });
+
   it("customer_refund", () => {
     assert.equal(
       tg("customer_refund", PAYLOADS.customer_refund),

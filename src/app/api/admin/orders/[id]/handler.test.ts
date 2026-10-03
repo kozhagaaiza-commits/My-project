@@ -209,7 +209,7 @@ function setupPatch(rows: OrderChangeRow[] = [orderRow({ kind: "preorder", statu
 describe("PATCH /api/admin/orders/[id]", () => {
   afterEach(() => mock.restoreAll());
 
-  it("200 как в Блоке 3: срок и сообщение клиенту; шаблона «Срок поставки изменился» нет → customer_notified: false", async () => {
+  it("200 как в Блоке 3: срок и сообщение клиенту; dep уведомления не задан → customer_notified: false", async () => {
     const { db, call } = setupPatch();
     const res = await call({
       expected_ready_at: "2026-11-12", customer_visible_note: "Задержка на таможне",
@@ -227,7 +227,7 @@ describe("PATCH /api/admin/orders/[id]", () => {
     });
   });
 
-  it("notifyDeliveryChanged (когда появится шаблон) вызывается только при изменении срока или сообщения", async () => {
+  it("notifyDeliveryChanged (A47) вызывается только при изменении срока или сообщения", async () => {
     const seen: unknown[] = [];
     const notify = async (p: unknown) => { seen.push(p); return true; };
     const a = setupPatch(undefined, { notifyDeliveryChanged: notify });
@@ -238,6 +238,22 @@ describe("PATCH /api/admin/orders/[id]", () => {
     const resB = await b.call({ expected_ready_at: "2026-11-01", admin_note: "x", updated_at: API_UPDATED_AT }); // срок не изменился
     assert.equal(((await json(resB)).data as Record<string, unknown>).customer_notified, false);
     assert.equal(seen.length, 1);
+  });
+
+  it("notifyDeliveryChanged получает статус заказа и новые срок/заметку; не поставлено в очередь → false; исключение → 200", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const a = setupPatch(undefined, { notifyDeliveryChanged: async (p) => { seen.push({ ...p }); return true; } });
+    await a.call({ customer_visible_note: "Задержка на таможне", updated_at: API_UPDATED_AT });
+    assert.equal(seen[0].status, "ordered_from_supplier");
+    assert.equal(seen[0].expectedReadyAt, "2026-11-01");
+    assert.equal(seen[0].customerVisibleNote, "Задержка на таможне");
+    const b = setupPatch(undefined, { notifyDeliveryChanged: async () => false });
+    assert.equal(((await json(await b.call({ expected_ready_at: "2026-11-12", updated_at: API_UPDATED_AT }))).data as Record<string, unknown>).customer_notified, false);
+    const c = setupPatch(undefined, { notifyDeliveryChanged: async () => { throw new Error("boom"); } });
+    mock.method(console, "error", () => {});
+    const resC = await c.call({ expected_ready_at: "2026-11-12", updated_at: API_UPDATED_AT });
+    assert.equal(resC.status, 200);
+    assert.equal(((await json(resC)).data as Record<string, unknown>).customer_notified, false);
   });
 
   it("«Снять отметку»: needs_attention=false; пустые строки очищают поля", async () => {

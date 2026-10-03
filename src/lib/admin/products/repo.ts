@@ -80,6 +80,8 @@ export interface AdminProductsRepo {
   deleteProduct(id: string): Promise<boolean>;
   hasOrderItems(productId: string): Promise<boolean>;
   latestRate(currency: "USD" | "CNY"): Promise<RateRow | null>;
+  /** Последний курс валюты с rate_date ≤ date (YYYY-MM-DD) — курс, по которому считалась цена (5.4, автопересчёт). */
+  rateOnOrBefore(currency: "USD" | "CNY", date: string): Promise<RateRow | null>;
   pricingSettings(): Promise<PricingSettings>;
   insertImage(row: NewImage): Promise<AdminImageRow>;
   /** false — фото с таким id у товара нет. */

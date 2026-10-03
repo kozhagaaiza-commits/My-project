@@ -49,6 +49,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
   const isAccountPage = isUnder(pathname, "/account");
+  // Dev-подмена экранов аккаунта без Supabase: AUTH_FIXTURES=1 вне production пускает на /account без сессии.
+  if (process.env.NODE_ENV !== "production" && process.env.AUTH_FIXTURES === "1" && isAccountPage) {
+    return NextResponse.next();
+  }
   const adminNext = `${pathname}${search}`;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

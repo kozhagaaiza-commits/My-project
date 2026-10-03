@@ -101,3 +101,13 @@ export function reserveText(reservedUntil: string | null, now: Date): string | n
   const left = formatReserveRemaining(reservedUntil, now);
   return left ? `Бронь действует ещё ${left}` : null;
 }
+
+const orderDateFormatter = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: MOSCOW_TZ, day: "numeric", month: "short", year: "numeric",
+});
+
+/** «5 окт. 2026 г.» (МСК) для списка заказов в кабинете; нечитаемая дата → пустая строка. */
+export function formatOrderDate(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : orderDateFormatter.format(date);
+}
