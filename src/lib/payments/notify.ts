@@ -1,4 +1,5 @@
 import { formatRub } from "@/lib/money";
+import { DELIVERY_METHOD_LABELS } from "@/lib/order-labels";
 import type { AdminAttentionPayload, CustomerOrderPaidPayload, CustomerRefundPayload, NotificationInput } from "@/lib/notifications/types";
 import { customerChat, safeEnqueue } from "@/lib/notifications/safe-enqueue";
 import type { OrderForPayment, OrderItemRow } from "@/lib/payments/db";
@@ -11,11 +12,6 @@ import type { PaymentsDeps } from "@/lib/payments/deps";
 
 type NotifyDeps = Pick<PaymentsDeps, "enqueue" | "siteUrl" | "adminChatId" | "orderUrl" | "customerChatId" | "kick">;
 
-export const DELIVERY_METHOD_LABELS: Record<OrderForPayment["delivery_method"], string> = {
-  moscow_courier: "Курьер по Москве",
-  cdek_pvz: "СДЭК — пункт выдачи",
-  cdek_door: "СДЭК — до двери",
-};
 
 /** «Казань · СДЭК ПВЗ KZN45» (как в шаблоне admin_order_paid). */
 export function deliveryLabel(o: Pick<OrderForPayment, "delivery_method" | "delivery_city" | "cdek_pvz_code">): string {

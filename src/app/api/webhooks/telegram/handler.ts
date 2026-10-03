@@ -8,8 +8,10 @@ import { escapeHtml, redactSecrets, type TelegramClient } from "@/lib/telegram";
 // Модуль не импортирует env / service-role клиент — тестируется node:test без сети.
 // Порядок: секрет (X-Telegram-Bot-Api-Secret-Token, timingSafeEqual) → иначе 403 ДО любых обращений к БД/Telegram →
 // JSON → Zod → команды. Ответ ВСЕГДА 200 { data: { ok: true } } (чтобы Telegram не повторял), кроме 403 и сбоя конфигурации (500).
-// Команды: /start o_<token>, /start fit_<vehicle_id>, /stop; прочий текст не-админа → forwardMessage админу.
+// Команды: /start o_<token>, /start fit_<vehicle_id>, /stop; прочие сообщения не-админа (текст, фото, стикеры, документы) →
+// forwardMessage админу. Голый /start — приветствие, админу не пересылается (A43).
 // Только private-чаты. Сообщения из чата админа не пересылаются. Лог — без токена бота и ПДн (только update_id).
+// Лимит: 10 сообщений / 60 с на чат (ключ tg:<chat_id>, fail-open); сверх лимита — 200 и ничего не делаем (A43).
 
 export const MSG_SUBSCRIBED = (number: string, statusLabel: string) =>
   `Подписка на заказ ${number} оформлена. Текущий статус: ${statusLabel}`;
@@ -18,10 +20,16 @@ export const MSG_FIT = "Напишите модель, год и что ищет
 export const MSG_FIT_ADMIN = (label: string, chatId: string) => `Запрос подбора: ${label}, чат ${chatId}`;
 export const MSG_STOPPED = "Уведомления отключены";
 export const MSG_FORWARDED = "Передал инженеру. Ответим в рабочее время";
+export const MSG_GREETING = "Это бот ForgeCarbon. Статусы заказа приходят по ссылке из письма. Вопрос — напишите сюда, передам инженеру.";
+
+/** Лимит входящих сообщений бота на чат (Блок 5.10 — через check_rate_limit; здесь, а не в rate-limit.ts, чтобы не трогать общий файл). */
+export const TELEGRAM_BOT_RATE_LIMIT = { limit: 10, windowSeconds: 60 } as const;
+export const botRateLimitKey = (chatId: string) => `tg:${chatId}`;
 
 const ORDER_TOKEN_FORMAT = /^[A-Za-z0-9_-]{32}$/;
 const UUID_FORMAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const START_RE = /^\/start(?:@\w+)?\s+(\S+)$/i;
+const BARE_START_RE = /^\/start(?:@\w+)?$/i;
 const STOP_RE = /^\/stop(?:@\w+)?$/i;
 
 export interface TelegramBotDeps {
@@ -40,6 +48,8 @@ export interface TelegramBotDeps {
   };
   /** «BMW 5 Series G30» или null, если автомобиля нет. */
   vehicleLabel(vehicleId: string): Promise<string | null>;
+  /** check_rate_limit: true — разрешено. fail-open обеспечивает реализация; исключение трактуется как «разрешено». */
+  rateLimit(key: string, limit: number, windowSeconds: number): Promise<boolean>;
 }
 
 const ok = () => Response.json({ data: { ok: true } }, { status: 200 });
@@ -82,25 +92,44 @@ async function handleStart(deps: TelegramBotDeps, chatId: string, param: string)
     await reply(deps, deps.adminChatId, escapeHtml(MSG_FIT_ADMIN(label ?? vehicleId, chatId)));
     return true;
   }
-  return false; // /start без известной нагрузки — «прочий текст»
+  return false; // /start с неизвестной нагрузкой — «прочий текст»
+}
+
+async function withinRateLimit(deps: TelegramBotDeps, chatId: string): Promise<boolean> {
+  try {
+    const { limit, windowSeconds } = TELEGRAM_BOT_RATE_LIMIT;
+    return await deps.rateLimit(botRateLimitKey(chatId), limit, windowSeconds);
+  } catch (err: unknown) {
+    console.error({ scope: "webhooks.telegram", msg: "лимит бота не проверен (fail-open)", err: redactSecrets(String(err)) });
+    return true;
+  }
 }
 
 async function handleUpdate(deps: TelegramBotDeps, update: ReturnType<typeof telegramUpdate.parse>): Promise<void> {
   const message = update.message;
-  if (!message || message.chat.type !== "private" || typeof message.text !== "string") return;
+  if (!message || message.chat.type !== "private") return;
   const chatId = String(message.chat.id);
-  const text = message.text.trim();
+  if (!(await withinRateLimit(deps, chatId))) return; // сверх лимита — молча
+
+  const text = message.text?.trim();
   if (text === "") return;
 
-  const start = START_RE.exec(text);
-  if (start && (await handleStart(deps, chatId, start[1]))) return;
+  if (text !== undefined) {
+    if (BARE_START_RE.test(text)) {
+      await reply(deps, chatId, MSG_GREETING);
+      return;
+    }
+    const start = START_RE.exec(text);
+    if (start && (await handleStart(deps, chatId, start[1]))) return;
 
-  if (STOP_RE.test(text)) {
-    await deps.orders.unsubscribe(chatId);
-    await reply(deps, chatId, MSG_STOPPED);
-    return;
+    if (STOP_RE.test(text)) {
+      await deps.orders.unsubscribe(chatId);
+      await reply(deps, chatId, MSG_STOPPED);
+      return;
+    }
   }
 
+  // Прочее (текст, фото, стикеры, документы) — инженеру.
   if (chatId === deps.adminChatId) return; // сообщения админа не пересылаем
   const messageId = message.message_id;
   if (typeof messageId !== "number") return;

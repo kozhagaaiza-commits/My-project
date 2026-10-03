@@ -51,7 +51,7 @@ function harness(): Harness {
   };
   return {
     repo, deps, emails, telegrams, mode, clock,
-    run: (limit = 50) => processNotificationQueue({ limit, deps, now: () => clock.now, dueSkewMs: 0 }),
+    run: (limit = 50) => processNotificationQueue({ limit, deps, now: () => clock.now, dueSkewMs: 0, sleep: async () => {} }),
   };
 }
 
@@ -193,6 +193,60 @@ describe("processNotificationQueue: Telegram 403", () => {
     h.clock.now = new Date(T0.getTime() + 24 * 60 * MIN);
     await h.run();
     assert.equal(h.telegrams.length, 1);
+  });
+});
+
+describe("processNotificationQueue: Telegram 4xx (rejected) — без повторов", () => {
+  it("400 «chat not found» → failed сразу, telegram_chat_id обнулён", async () => {
+    const h = harness();
+    h.mode.telegram = { kind: "rejected", status: 400, error: "Bad Request: chat not found" };
+    const row = h.repo.add(TG);
+    assert.deepEqual(await h.run(), { sent: 0, failed: 1, retried: 0, remaining: 0 });
+    assert.equal(h.repo.get(row.id).status, "failed");
+    assert.equal(h.repo.get(row.id).attempts, 1);
+    assert.match(h.repo.get(row.id).last_error ?? "", /Telegram 400: Bad Request: chat not found/);
+    assert.deepEqual(h.repo.clearedChats, ["512398764"]);
+  });
+
+  it("400 «can't parse entities» → failed сразу, подписка не трогается", async () => {
+    const h = harness();
+    h.mode.telegram = { kind: "rejected", status: 400, error: "Bad Request: can't parse entities" };
+    const row = h.repo.add(TG);
+    assert.deepEqual(await h.run(), { sent: 0, failed: 1, retried: 0, remaining: 0 });
+    assert.equal(h.repo.get(row.id).status, "failed");
+    assert.deepEqual(h.repo.clearedChats, []);
+    assert.equal(h.telegrams.length, 1);
+  });
+});
+
+describe("processNotificationQueue: сбой markSent после успешной отправки (A40)", () => {
+  it("первый markSent упал — один повтор через ~300 мс, строка sent, отправка одна", async () => {
+    const h = harness();
+    const row = h.repo.add(EMAIL);
+    const real = h.repo.markSent.bind(h.repo);
+    let calls = 0;
+    h.repo.markSent = async (id, attempts) => { if (++calls === 1) throw new Error("db blip"); return real(id, attempts); };
+    const pauses: number[] = [];
+    const res = await processNotificationQueue({ limit: 10, deps: h.deps, now: () => h.clock.now, dueSkewMs: 0, sleep: async (ms) => { pauses.push(ms); } });
+    assert.deepEqual(res, { sent: 1, failed: 0, retried: 0, remaining: 0 });
+    assert.equal(calls, 2);
+    assert.deepEqual(pauses, [300]);
+    assert.equal(h.repo.get(row.id).status, "sent");
+    assert.equal(h.emails.length, 1);
+  });
+
+  it("оба markSent упали — лог, строка остаётся pending (отправка не повторяется в этом запуске), запуск не падает", async () => {
+    const log = mock.method(console, "error", () => {});
+    const h = harness();
+    const row = h.repo.add(EMAIL);
+    let calls = 0;
+    h.repo.markSent = async () => { calls++; throw new Error("db down"); };
+    const res = await h.run();
+    assert.equal(res.error, undefined);
+    assert.equal(calls, 2);
+    assert.equal(h.repo.get(row.id).status, "pending");
+    assert.equal(h.emails.length, 1);
+    assert.equal(log.mock.callCount(), 1);
   });
 });
 

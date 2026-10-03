@@ -5,13 +5,14 @@ import { createTelegramWebhookHandler, type TelegramBotDeps } from "./handler";
 let cached: Promise<TelegramBotDeps> | null = null;
 
 async function realDeps(): Promise<TelegramBotDeps> {
-  const [{ env }, { createAdminClient }, { createBotOrdersRepo }, { hashOrderToken }, { getTelegramClient }, { getVehicle }] = await Promise.all([
+  const [{ env }, { createAdminClient }, { createBotOrdersRepo }, { hashOrderToken }, { getTelegramClient }, { getVehicle }, { checkRateLimit }] = await Promise.all([
     import("@/lib/env"),
     import("@/lib/supabase/admin"),
     import("@/lib/notifications/bot-repo"),
     import("@/lib/orders/token"),
     import("@/lib/telegram"),
     import("@/lib/catalog-queries"),
+    import("@/lib/rate-limit"),
   ]);
   return {
     secret: env.TELEGRAM_WEBHOOK_SECRET,
@@ -19,6 +20,7 @@ async function realDeps(): Promise<TelegramBotDeps> {
     telegram: await getTelegramClient(),
     hashToken: hashOrderToken,
     orders: createBotOrdersRepo(createAdminClient()),
+    rateLimit: (key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds, { failOpen: true }),
     vehicleLabel: async (id) => {
       const v = await getVehicle(id);
       return v ? `${v.make} ${v.model} ${v.generation}` : null;

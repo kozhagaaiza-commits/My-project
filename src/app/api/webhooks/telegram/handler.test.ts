@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { afterEach, describe, it, mock } from "node:test";
 import {
-  MSG_FIT, MSG_FORWARDED, MSG_LINK_INVALID, MSG_STOPPED, createTelegramWebhookHandler, type TelegramBotDeps,
+  MSG_FIT, MSG_FORWARDED, MSG_GREETING, MSG_LINK_INVALID, MSG_STOPPED, TELEGRAM_BOT_RATE_LIMIT, createTelegramWebhookHandler,
+  type TelegramBotDeps,
 } from "@/app/api/webhooks/telegram/handler";
 import type { TelegramMessage, TelegramResult } from "@/lib/telegram";
 
@@ -15,9 +16,10 @@ const sha = (t: string) => createHash("sha256").update(t).digest("hex");
 
 interface Order { id: string; number: string; status: string; telegram_chat_id: string | null }
 
-function setup(over: { sendResult?: TelegramResult<TelegramMessage>; forwardResult?: TelegramResult<TelegramMessage>; failDb?: boolean; vehicle?: string | null | "throw" } = {}) {
+function setup(over: { sendResult?: TelegramResult<TelegramMessage>; forwardResult?: TelegramResult<TelegramMessage>; failDb?: boolean; vehicle?: string | null | "throw"; rateLimit?: (key: string) => boolean | "throw" } = {}) {
   const calls: string[] = []; // порядок обращений
   const seenHashes: string[] = [];
+  const limitCalls: Array<{ key: string; limit: number; windowSeconds: number }> = [];
   const sent: Array<{ chatId: string; text: string }> = [];
   const forwarded: Array<{ chatId: string; from: string; messageId: number }> = [];
   const orders: Order[] = [{ id: "o-1", number: "FC-26-000123", status: "paid", telegram_chat_id: null }, { id: "o-2", number: "FC-26-000124", status: "pending_payment", telegram_chat_id: null }];
@@ -42,10 +44,16 @@ function setup(over: { sendResult?: TelegramResult<TelegramMessage>; forwardResu
       subscribe: async (orderId, chatId) => { calls.push("db.subscribe"); const o = orders.find((x) => x.id === orderId); if (o) o.telegram_chat_id = chatId; },
       unsubscribe: async (chatId) => { calls.push("db.unsubscribe"); for (const o of orders) if (o.telegram_chat_id === chatId) o.telegram_chat_id = null; },
     },
+    rateLimit: async (key, limit, windowSeconds) => {
+      limitCalls.push({ key, limit, windowSeconds });
+      const r = over.rateLimit?.(key) ?? true;
+      if (r === "throw") throw new Error("rate limit storage down");
+      return r;
+    },
     vehicleLabel: async () => { calls.push("vehicle"); if (over.vehicle === "throw") throw new Error("x"); return over.vehicle === undefined ? "BMW 5 Series G30" : over.vehicle; },
   };
   const POST = createTelegramWebhookHandler(() => deps);
-  return { POST, calls, sent, forwarded, orders, seenHashes };
+  return { POST, calls, sent, forwarded, orders, seenHashes, limitCalls };
 }
 
 const update = (text: string | undefined, chatId = USER, type = "private", extra: Record<string, unknown> = {}) => ({
@@ -161,6 +169,60 @@ describe("/start fit_<vehicle_id>", () => {
   });
 });
 
+describe("голый /start — приветствие", () => {
+  it("«/start» и «/start@bot» → приветствие дословно, админу не пересылается, БД не опрашивается", async () => {
+    for (const text of ["/start", "/start@forgecarbon_bot", "  /start  "]) {
+      const t = setup();
+      const res = await t.POST(req(update(text)));
+      assert.deepEqual(await res.json(), OK);
+      assert.deepEqual(t.sent, [{ chatId: String(USER), text: "Это бот ForgeCarbon. Статусы заказа приходят по ссылке из письма. Вопрос — напишите сюда, передам инженеру." }]);
+      assert.equal(MSG_GREETING, t.sent[0].text);
+      assert.deepEqual(t.forwarded, []);
+      assert.ok(!t.calls.includes("db.find"));
+    }
+  });
+});
+
+describe("лимит бота tg:<chat_id>", () => {
+  it("ключ tg:<chat_id>, 10 сообщений за 60 с", async () => {
+    const t = setup();
+    await t.POST(req(update("вопрос")));
+    assert.deepEqual(t.limitCalls, [{ key: `tg:${USER}`, limit: 10, windowSeconds: 60 }]);
+    assert.deepEqual(TELEGRAM_BOT_RATE_LIMIT, { limit: 10, windowSeconds: 60 });
+  });
+
+  it("сверх лимита — 200, ни БД, ни Telegram не трогаются", async () => {
+    const t = setup({ rateLimit: () => false });
+    const res = await t.POST(req(update(`/start o_${TOKEN}`)));
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), OK);
+    assert.deepEqual(t.calls, []);
+    assert.ok(t.orders.every((o) => o.telegram_chat_id === null));
+  });
+
+  it("лимит считается по чату: другой чат не страдает", async () => {
+    const t = setup({ rateLimit: (key) => key !== `tg:${USER}` });
+    await t.POST(req(update("вопрос")));
+    assert.deepEqual(t.calls, []);
+    await t.POST(req(update("вопрос", 42)));
+    assert.deepEqual(t.calls, ["forwardMessage", "sendMessage"]);
+  });
+
+  it("сбой хранилища лимитов — fail-open: сообщение обрабатывается", async () => {
+    mock.method(console, "error", () => {});
+    const t = setup({ rateLimit: () => "throw" });
+    await t.POST(req(update("вопрос")));
+    assert.deepEqual(t.calls, ["forwardMessage", "sendMessage"]);
+  });
+
+  it("не private-чат и неверный секрет лимит не расходуют", async () => {
+    const t = setup();
+    await t.POST(req(update("x", -1, "group")));
+    await t.POST(req(update("x"), "bad"));
+    assert.deepEqual(t.limitCalls, []);
+  });
+});
+
 describe("/stop", () => {
   it("обнуляет telegram_chat_id у всех заказов чата и отвечает «Уведомления отключены»", async () => {
     const t = setup();
@@ -192,10 +254,20 @@ describe("прочий текст → админу", () => {
     assert.deepEqual(t.calls, ["forwardMessage", "sendMessage"]);
   });
 
-  it("/start без нагрузки — тоже «прочий текст»", async () => {
+  it("фото, стикер, документ (нет text) — пересылаются админу, ответ «Передал…»", async () => {
+    for (const extra of [{ photo: [{ file_id: "a" }] }, { sticker: { file_id: "b" } }, { document: { file_id: "c" } }]) {
+      const t = setup();
+      const res = await t.POST(req(update(undefined, USER, "private", extra)));
+      assert.deepEqual(await res.json(), OK);
+      assert.deepEqual(t.forwarded, [{ chatId: ADMIN, from: String(USER), messageId: 41 }]);
+      assert.deepEqual(t.sent, [{ chatId: String(USER), text: MSG_FORWARDED }]);
+    }
+  });
+
+  it("нетекстовое сообщение из чата админа не пересылается", async () => {
     const t = setup();
-    await t.POST(req(update("/start")));
-    assert.equal(t.forwarded.length, 1);
+    await t.POST(req(update(undefined, Number(ADMIN), "private", { photo: [{ file_id: "a" }] })));
+    assert.deepEqual(t.calls, []);
   });
 
   it("сообщения из чата админа не пересылаются и без ответа", async () => {
@@ -210,9 +282,9 @@ describe("прочий текст → админу", () => {
     assert.equal(t.orders[0].telegram_chat_id, ADMIN);
   });
 
-  it("не private-чат, нет текста, нет message — игнорируются, 200", async () => {
+  it("не private-чат, пустой текст, нет message — игнорируются, 200", async () => {
     const t = setup();
-    for (const body of [update("привет", -100500, "group"), update(undefined), { update_id: 1 }, update("x", USER, "channel")]) {
+    for (const body of [update("привет", -100500, "group"), update("  "), { update_id: 1 }, update("x", USER, "channel")]) {
       const res = await t.POST(req(body));
       assert.equal(res.status, 200);
     }

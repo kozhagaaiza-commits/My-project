@@ -242,3 +242,56 @@ describe("битый payload и неизвестные значения не б�
     assert.equal(renderNotification({ template: undefined, channel: undefined, payload: undefined }).ok, false);
   });
 });
+
+describe("лимит Telegram 4096: поля обрезаются до сборки HTML, теги и сущности целы", () => {
+  const plainLength = (html: string) =>
+    html.replace(/<[^>]+>/g, "").replace(/&(amp|lt|gt|quot);/g, "_").length; // сущность = 1 символ после разбора разметки
+  const wellFormed = (html: string) => {
+    assert.equal((html.match(/<a /g) ?? []).length, (html.match(/<\/a>/g) ?? []).length);
+    assert.equal((html.match(/<b>/g) ?? []).length, (html.match(/<\/b>/g) ?? []).length);
+    assert.doesNotMatch(html, /&(?!(amp|lt|gt|quot);)/); // нет «оборванных» сущностей
+  };
+  const big = (n: number) => "&".repeat(n); // худший случай: каждый символ — сущность
+  const URL_MAX = `https://x.test/${"a".repeat(2000)}`;
+
+  const worst: Array<[string, unknown]> = [
+    ["admin_order_paid", {
+      order_id: big(64), order_number: big(40), total: 1, total_formatted: big(40),
+      items: Array.from({ length: 100 }, () => ({ title: big(300), quantity: 10_000 })),
+      vehicle_label: big(200), vin: big(40), delivery_label: big(300), admin_url: URL_MAX, needs_attention: true,
+    }],
+    ["admin_attention", { order_id: big(64), order_number: big(40), kind: "paid_needs_attention", reason: big(2000), admin_url: URL_MAX }],
+    ["admin_attention", { order_id: big(64), order_number: big(40), kind: "payment_create_failed", reason: big(2000), admin_url: URL_MAX }],
+    ["admin_atelier_applied", { company_name: big(200), inn: big(20), city: big(100) }],
+    ["customer_order_paid", {
+      order_number: big(40), kind: "stock", total: 1, total_formatted: big(40), items: [], delivery_method_label: big(100),
+      delivery_label: big(300), order_url: URL_MAX,
+    }],
+    ["customer_status_changed", {
+      order_number: big(40), status: "shipped", status_label: big(100), tracking_number: big(60), tracking_url: URL_MAX, order_url: URL_MAX,
+    }],
+    ["customer_refund", { order_number: big(40), amount: 1, amount_formatted: big(40), order_url: URL_MAX }],
+  ];
+
+  for (const [template, payload] of worst) {
+    it(`${template}: худший payload ≤ 4096 символов и корректная разметка`, () => {
+      const text = tg(template, payload);
+      assert.ok(plainLength(text) <= 4096, `${template}: ${plainLength(text)}`);
+      wellFormed(text);
+    });
+  }
+
+  it("admin_order_paid: 100 позиций → 15 строк + «… и ещё 85», ссылка на месте", () => {
+    const text = tg("admin_order_paid", {
+      ...PAYLOADS.admin_order_paid, items: Array.from({ length: 100 }, (_, i) => ({ title: `Товар ${i}`, quantity: 1 })),
+    });
+    assert.ok(text.includes("… и ещё 85"));
+    assert.ok(text.endsWith("Открыть заказ</a>"));
+  });
+
+  it("длинное название обрезается до экранирования: сущность не режется", () => {
+    const text = tg("admin_order_paid", { ...PAYLOADS.admin_order_paid, items: [{ title: big(300), quantity: 1 }] });
+    wellFormed(text);
+    assert.ok(text.includes(`${"&amp;".repeat(149)}… ×1`));
+  });
+});

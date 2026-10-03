@@ -1,5 +1,6 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { buildEmail, oneLine, type EmailContent } from "@/lib/notifications/email";
+import * as schemas from "@/lib/notifications/payload-schemas";
 import {
   NOTIFICATION_TEMPLATES,
   type AdminAtelierAppliedPayload, type AdminAttentionPayload, type AdminOrderPaidPayload, type AtelierApprovedPayload,
@@ -17,47 +18,15 @@ export type RenderedMessage =
   | ({ channel: "email" } & EmailContent);
 export type RenderOutcome = { ok: true; message: RenderedMessage } | { ok: false; error: string };
 
-const TELEGRAM_LIMIT = 4096;
+// Лимит Telegram — 4096 символов текста ПОСЛЕ разбора разметки. Он держится «по построению»: длина каждого поля ограничена
+// Zod-схемой (payload-schemas.ts), длинные списки/строки обрезаются ДО экранирования и сборки HTML (теги и сущности не режутся),
+// сумма худших случаев по каждому шаблону < 4096 (проверено тестом templates.test.ts).
 const MAX_ITEM_LINES = 15;
-
-const isHttpUrl = (s: string) => /^https?:\/\/[^\s"<>]+$/i.test(s);
-const urlField = z.string().refine(isHttpUrl, "ожидается http(s)-ссылка");
-const text = (max = 1000) => z.string().max(max);
-const money = z.number().int();
+const MAX_ITEM_TITLE = 150;
 
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 const link = (url: string, label: string) => `<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>`;
 const e = escapeHtml;
-
-// ---------- Схемы payload (форма совпадает с types.ts) ----------
-
-const itemSchema = z.object({ title: text(300), quantity: z.number().int().positive() });
-
-const adminOrderPaid = z.object({
-  order_id: text(64), order_number: text(40), total: money, total_formatted: text(40),
-  items: z.array(itemSchema).max(100), vehicle_label: text(200).nullable(), vin: text(40).nullable(),
-  delivery_label: text(300), admin_url: urlField, needs_attention: z.boolean(),
-});
-const customerOrderPaid = z.object({
-  order_number: text(40), kind: z.enum(["stock", "preorder"]), total: money, total_formatted: text(40),
-  items: z.array(itemSchema.extend({ line_total: money, line_total_formatted: text(40) })).max(100),
-  delivery_method_label: text(100), delivery_label: text(300), order_url: urlField,
-});
-const adminAttention = z.object({
-  order_id: text(64), order_number: text(40),
-  kind: z.enum(["payment_create_failed", "paid_needs_attention", "duplicate_payment", "payment_currency_mismatch"]),
-  reason: text(2000), admin_url: urlField,
-});
-const customerRefund = z.object({
-  order_number: text(40), amount: money, amount_formatted: text(40), order_url: urlField.nullable(),
-});
-const adminAtelierApplied = z.object({ company_name: text(200), inn: text(20), city: text(100) });
-const customerStatusChanged = z.object({
-  order_number: text(40), status: text(40), status_label: text(100),
-  tracking_number: text(60).nullable(), tracking_url: urlField.nullable(), order_url: urlField.nullable(),
-});
-const atelierApproved = z.object({ company_name: text(200) });
-const atelierRejected = z.object({ company_name: text(200), rejection_reason: text(1000) });
 
 // ---------- Telegram ----------
 
@@ -67,7 +36,7 @@ function vehicleLine(p: AdminOrderPaidPayload): string | null {
 }
 
 function tgAdminOrderPaid(p: AdminOrderPaidPayload): string {
-  const items = p.items.slice(0, MAX_ITEM_LINES).map((i) => `${e(clip(i.title, 200))} ×${i.quantity}`);
+  const items = p.items.slice(0, MAX_ITEM_LINES).map((i) => `${e(clip(i.title, MAX_ITEM_TITLE))} ×${i.quantity}`);
   if (p.items.length > MAX_ITEM_LINES) items.push(`… и ещё ${p.items.length - MAX_ITEM_LINES}`);
   return [
     `💳 Оплачен заказ <b>${e(p.order_number)}</b> · ${e(p.total_formatted)}`,
@@ -177,7 +146,7 @@ function entry<T>(
         return { ok: false, error: `некорректный payload: ${issues}` };
       }
       if (channel === "telegram" && fns.telegram) {
-        return { ok: true, message: { channel, text: clip(fns.telegram(parsed.data), TELEGRAM_LIMIT) } };
+        return { ok: true, message: { channel, text: fns.telegram(parsed.data) } };
       }
       if (channel === "email" && fns.email) return { ok: true, message: { channel, ...fns.email(parsed.data) } };
       return { ok: false, error: `шаблон не поддерживает канал ${channel}` };
@@ -186,14 +155,14 @@ function entry<T>(
 }
 
 const REGISTRY: Record<NotificationTemplate, Entry> = {
-  admin_order_paid: entry<AdminOrderPaidPayload>(adminOrderPaid, { telegram: tgAdminOrderPaid }),
-  admin_attention: entry<AdminAttentionPayload>(adminAttention, { telegram: tgAdminAttention }),
-  admin_atelier_applied: entry<AdminAtelierAppliedPayload>(adminAtelierApplied, { telegram: tgAdminAtelierApplied }),
-  customer_order_paid: entry<CustomerOrderPaidPayload>(customerOrderPaid, { email: emailCustomerOrderPaid, telegram: tgCustomerOrderPaid }),
-  customer_status_changed: entry<CustomerStatusChangedPayload>(customerStatusChanged, { email: emailCustomerStatusChanged, telegram: tgCustomerStatusChanged }),
-  customer_refund: entry<CustomerRefundPayload>(customerRefund, { email: emailCustomerRefund, telegram: (p) => e(refundSentence(p)) }),
-  atelier_approved: entry<AtelierApprovedPayload>(atelierApproved, { email: emailAtelierApproved }),
-  atelier_rejected: entry<AtelierRejectedPayload>(atelierRejected, { email: emailAtelierRejected }),
+  admin_order_paid: entry<AdminOrderPaidPayload>(schemas.adminOrderPaid, { telegram: tgAdminOrderPaid }),
+  admin_attention: entry<AdminAttentionPayload>(schemas.adminAttention, { telegram: tgAdminAttention }),
+  admin_atelier_applied: entry<AdminAtelierAppliedPayload>(schemas.adminAtelierApplied, { telegram: tgAdminAtelierApplied }),
+  customer_order_paid: entry<CustomerOrderPaidPayload>(schemas.customerOrderPaid, { email: emailCustomerOrderPaid, telegram: tgCustomerOrderPaid }),
+  customer_status_changed: entry<CustomerStatusChangedPayload>(schemas.customerStatusChanged, { email: emailCustomerStatusChanged, telegram: tgCustomerStatusChanged }),
+  customer_refund: entry<CustomerRefundPayload>(schemas.customerRefund, { email: emailCustomerRefund, telegram: (p) => e(refundSentence(p)) }),
+  atelier_approved: entry<AtelierApprovedPayload>(schemas.atelierApproved, { email: emailAtelierApproved }),
+  atelier_rejected: entry<AtelierRejectedPayload>(schemas.atelierRejected, { email: emailAtelierRejected }),
 };
 
 const isTemplate = (v: unknown): v is NotificationTemplate => (NOTIFICATION_TEMPLATES as readonly unknown[]).includes(v);

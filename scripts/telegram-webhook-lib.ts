@@ -4,6 +4,8 @@
 
 export const WEBHOOK_PATH = "/api/webhooks/telegram";
 export const ALLOWED_UPDATES = ["message"] as const;
+// Дубли TELEGRAM_API и redactToken (есть в src/lib/telegram.ts) здесь намеренны: telegram.ts начинается с `import "server-only"`,
+// который падает вне Next.js, а скрипт запускается через `npx tsx` — модуль должен быть самодостаточным.
 export const TELEGRAM_API = "https://api.telegram.org";
 
 export interface WebhookSetup {

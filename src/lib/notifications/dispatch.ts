@@ -1,29 +1,22 @@
 import "server-only";
 import { after } from "next/server";
-import type { MailResult } from "@/lib/mailer";
-import { renderNotification } from "@/lib/notifications/templates";
-import type { NotificationQueueRepo, QueueRow } from "@/lib/notifications/queue-repo";
-import { redactSecrets, type TelegramResult } from "@/lib/telegram";
+import {
+  clean, deliver, settle, type DispatchDeps, type Outcome, type ProcessResult,
+} from "@/lib/notifications/dispatch-settle";
 
 // Отправка уведомлений из notification_queue (Чертёж 5.9.2 «Fallback», 5.9.3, 5.12 шаг 5, Edge Cases 7 и 8).
 // Строка: pending → sent | (повтор) | failed. Каждая отправка — одна «попытка» очереди (внутри — свои ретраи клиентов:
-// Telegram 3×, SMTP 2×). Расписание повторов после неудачи: +5 мин, +30 мин, +2 ч, +12 ч; пятая неудача → failed.
+// Telegram 3×, SMTP 2×). Отправка строки и применение результата — dispatch-settle.ts.
 // Захват строки атомарный (lease): next_attempt_at = now + 2 мин по условию status = 'pending' и next_attempt_at ≤ now —
 // два параллельных запуска (kick, cron, /api/admin/summary) одну строку не отправят дважды; при падении процесса
 // строка вернётся в работу после окончания lease.
 // Ничего не бросает наружу: сбой БД/сети → счётчики + поле error + структурный console.error без получателей и текстов.
 
-export const RETRY_DELAYS_MS = [5 * 60_000, 30 * 60_000, 2 * 3_600_000, 12 * 3_600_000] as const;
-export const MAX_QUEUE_ATTEMPTS = 5;
+export { RETRY_DELAYS_MS, MAX_QUEUE_ATTEMPTS, type DispatchDeps, type ProcessResult } from "@/lib/notifications/dispatch-settle";
+
 export const LEASE_MS = 2 * 60_000;
 /** Запас на расхождение часов приложения и БД: строка с next_attempt_at = now() БД считается due сразу. */
 export const DEFAULT_DUE_SKEW_MS = 15_000;
-
-export interface DispatchDeps {
-  repo: NotificationQueueRepo;
-  sendTelegram(chatId: string, text: string): Promise<TelegramResult<unknown>>;
-  sendEmail(message: { to: string; subject: string; html: string; text: string }): Promise<MailResult>;
-}
 
 export interface ProcessOptions {
   limit: number;
@@ -33,78 +26,8 @@ export interface ProcessOptions {
   budgetMs?: number;
   dueSkewMs?: number;
   clock?: () => number;
-}
-
-export interface ProcessResult {
-  sent: number;
-  /** Строки, ставшие failed (исчерпаны попытки, 403, битый payload). */
-  failed: number;
-  /** Строки, оставленные в очереди на повтор. */
-  retried: number;
-  /** Строки pending после запуска. */
-  remaining: number;
-  /** Сбой уровня БД (очередь не разобрана). */
-  error?: string;
-}
-
-type Outcome =
-  | { kind: "sent" }
-  | { kind: "retry"; error: string }
-  | { kind: "blocked"; error: string }
-  | { kind: "invalid"; error: string };
-
-const clean = (s: string) => redactSecrets(s).slice(0, 500);
-
-async function deliver(row: QueueRow, deps: DispatchDeps): Promise<Outcome> {
-  const rendered = renderNotification({ template: row.template, channel: row.channel, payload: row.payload });
-  if (!rendered.ok) return { kind: "invalid", error: rendered.error };
-  const msg = rendered.message;
-  if (msg.channel === "telegram") {
-    const res = await deps.sendTelegram(row.recipient, msg.text);
-    switch (res.kind) {
-      case "ok": return { kind: "sent" };
-      case "blocked": return { kind: "blocked", error: `Telegram 403: ${res.error}` };
-      case "rate_limited": return { kind: "retry", error: `Telegram 429, retry_after ${res.retryAfterSeconds} с` };
-      case "rejected": return { kind: "retry", error: `Telegram ${res.status}: ${res.error}` };
-      case "failed": return { kind: "retry", error: `Telegram: ${res.error}` };
-    }
-  }
-  const res = await deps.sendEmail({ to: row.recipient, subject: msg.subject, html: msg.html, text: msg.text });
-  return res.kind === "ok" ? { kind: "sent" } : { kind: "retry", error: `SMTP: ${res.error}` };
-}
-
-/** Применяет результат отправки к строке очереди и обновляет счётчики. */
-async function settle(row: QueueRow, outcome: Outcome, deps: DispatchDeps, now: Date, counters: ProcessResult): Promise<void> {
-  const attempts = row.attempts + 1;
-  switch (outcome.kind) {
-    case "sent":
-      await deps.repo.markSent(row.id, attempts);
-      counters.sent++;
-      return;
-    case "invalid":
-      await deps.repo.markFailed(row.id, attempts, clean(outcome.error));
-      counters.failed++;
-      return;
-    case "blocked":
-      // Бот заблокирован: повторять бессмысленно; подписку на заказ снимаем (Блок 5.9.2).
-      await deps.repo.markFailed(row.id, attempts, clean(outcome.error));
-      counters.failed++;
-      try {
-        await deps.repo.clearTelegramChat(row.recipient);
-      } catch (err: unknown) {
-        console.error({ scope: "notifications.dispatch", msg: "orders.telegram_chat_id не обнулён", err: clean(String(err)) });
-      }
-      return;
-    case "retry":
-      if (attempts >= MAX_QUEUE_ATTEMPTS) {
-        await deps.repo.markFailed(row.id, attempts, clean(outcome.error));
-        counters.failed++;
-      } else {
-        const delay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
-        await deps.repo.reschedule(row.id, attempts, new Date(now.getTime() + delay), clean(outcome.error));
-        counters.retried++;
-      }
-  }
+  /** Пауза перед повтором markSent; в тестах — мгновенная. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export async function processNotificationQueue(opts: ProcessOptions): Promise<ProcessResult> {
@@ -113,6 +36,7 @@ export async function processNotificationQueue(opts: ProcessOptions): Promise<Pr
     const deps = opts.deps ?? (await getDefaultDispatchDeps());
     const now = opts.now ?? (() => new Date());
     const clock = opts.clock ?? Date.now;
+    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     const started = clock();
     const dueBefore = new Date(now().getTime() + (opts.dueSkewMs ?? DEFAULT_DUE_SKEW_MS));
     const due = await deps.repo.listDue(dueBefore, opts.limit);
@@ -128,7 +52,7 @@ export async function processNotificationQueue(opts: ProcessOptions): Promise<Pr
         } catch (err: unknown) {
           outcome = { kind: "retry", error: `ошибка отправки: ${err instanceof Error ? err.name : "unknown"}: ${err instanceof Error ? err.message : ""}` };
         }
-        await settle(row, outcome, deps, now(), counters);
+        await settle(row, outcome, { deps, now: now(), sleep }, counters);
       } catch (err: unknown) {
         // Сбой БД на одной строке: строка вернётся в работу после lease; остальные продолжаем.
         console.error({ scope: "notifications.dispatch", msg: "строка очереди не обработана", id: candidate.id, err: clean(String(err)) });
