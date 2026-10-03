@@ -101,9 +101,7 @@ export interface AdminOrderDetail {
   telegram_subscribed: boolean;
   consent_pd_at: string | null;
   consent_policy_version: string | null;
-  updated_at: string;
-  /** Дата создания в ответе Чертежа не указана; берётся из первой записи истории. */
-  created_at?: string;
+  updated_at: string; // Даты создания в ответе нет — в шапке берём первую запись history.
 }
 
 export interface AdminStatusChangeResult {

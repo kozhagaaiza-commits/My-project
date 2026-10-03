@@ -9,6 +9,7 @@ export const orderStatus = z.enum([
   "pending_payment", "paid", "confirmed", "ordered_from_supplier", "in_transit", "arrived",
   "shipped", "delivered", "cancelled", "refunded",
 ]);
+export type OrderStatus = z.infer<typeof orderStatus>;
 export const paymentStatus = z.enum(["pending", "waiting_for_capture", "succeeded", "canceled"]);
 export type PaymentStatus = z.infer<typeof paymentStatus>;
 export const refundStatus = z.enum(["pending", "succeeded", "canceled", "failed"]);
@@ -65,7 +66,7 @@ export const paymentRow = z.object({
 });
 export type PaymentRow = z.infer<typeof paymentRow>;
 
-export const REFUND_COLUMNS = "id,order_id,payment_id,yookassa_refund_id,amount,status,reason,error_message,created_at";
+export const REFUND_COLUMNS = "id,order_id,payment_id,yookassa_refund_id,amount,status,reason,error_message,created_at,restock,created_by";
 export const refundRow = z.object({
   id: z.string(),
   order_id: z.string(),
@@ -76,6 +77,10 @@ export const refundRow = z.object({
   reason: z.string(),
   error_message: z.string().nullable(),
   created_at: isoTs,
+  // Всегда есть в ответе PostgREST (REFUND_COLUMNS); optional — для совместимости моков Дня 4. Нужны при завершении
+  // возврата: restock (BR-17) и автор возврата для order_status_history.changed_by.
+  restock: z.boolean().optional(),
+  created_by: z.string().nullable().optional(),
 });
 export type RefundRow = z.infer<typeof refundRow>;
 
@@ -107,12 +112,15 @@ export interface NewRefund {
   amount: number;
   reason: string;
   restock: boolean;
+  /** auth.users.id админа (ручной возврат); автоматический возврат — без поля (null). */
+  created_by?: string | null;
 }
 export interface RefundPatch {
   status: RefundStatus;
   yookassa_refund_id?: string | null;
   error_message?: string | null;
   reason?: string;
+  restock?: boolean;
 }
 
 const ATTENTION_MAX = 300;

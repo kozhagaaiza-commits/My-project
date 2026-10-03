@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   appendAttention,
-  type MarkPaidResult, type NewPayment, type NewRefund, type OrderForPayment, type OrderItemRow, type PaymentPatch,
+  type MarkPaidResult, type NewPayment, type NewRefund, type OrderForPayment, type OrderItemRow, type OrderStatus, type PaymentPatch,
   type PaymentRow, type PaymentStatus, type PaymentsRepo, type RefundPatch, type RefundRow,
 } from "@/lib/payments/db";
 import type { PaymentsDeps } from "@/lib/payments/deps";
@@ -22,7 +22,7 @@ export type MemOrder = OrderForPayment & {
 type MemPayment = Omit<PaymentRow, "confirmation_url" | "captured_at"> & {
   idempotence_key: string; payment_method_type: string | null; cancellation_reason: string | null; raw: unknown;
 };
-type MemRefund = RefundRow & { restock: boolean };
+type MemRefund = RefundRow & { restock: boolean; created_by: string | null };
 
 const pick = (raw: unknown, ...path: string[]): string | null => {
   let cur: unknown = raw;
@@ -35,8 +35,10 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
   readonly items = new Map<string, OrderItemRow[]>();
   readonly payments: MemPayment[] = [];
   readonly refunds: MemRefund[] = [];
-  readonly history: Array<{ order_id: string; from: string; to: string; note: string }> = [];
+  readonly history: Array<{ order_id: string; from: string; to: string; note: string; changed_by?: string | null }> = [];
   readonly markPaidCalls: Array<{ orderId: string; amount: number }> = [];
+  /** Вызовы rpc restock_order (по SQL 2.14 — только kind = 'stock'; остатки в памяти не моделируются). */
+  readonly restockCalls: string[] = [];
   /** Имитация миграции uq_refunds_duplicate_payment: unique (payment_id) where reason = 'Повторная оплата'. */
   duplicateRefundIndex = false;
   private refundSeq = 0;
@@ -61,6 +63,7 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
     return {
       id: r.id, order_id: r.order_id, payment_id: r.payment_id, yookassa_refund_id: r.yookassa_refund_id, amount: r.amount,
       status: r.status, reason: r.reason, error_message: r.error_message, created_at: r.created_at,
+      restock: r.restock, created_by: r.created_by,
     };
   }
 
@@ -140,7 +143,7 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
     }
     // created_at строго растёт (как now() разных транзакций): микросекунды = порядковый номер вставки.
     const created_at = this.iso().replace("Z", `${String(++this.refundSeq).padStart(3, "0")}+00:00`);
-    const r: MemRefund = { id: randomUUID(), yookassa_refund_id: null, status: "pending", error_message: null, created_at, ...row };
+    const r: MemRefund = { id: randomUUID(), yookassa_refund_id: null, status: "pending", error_message: null, created_at, ...row, created_by: row.created_by ?? null };
     this.refunds.push(r);
     return { row: this.refundView(r) };
   }
@@ -177,6 +180,22 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
   async listOpenRefundsByReason(reason: string, sinceIso: string) {
     return this.refunds.filter((r) => r.reason === reason && (r.status === "pending" || r.status === "failed") && r.created_at >= sinceIso)
       .map((r) => this.refundView(r));
+  }
+  async listPendingRefundsSince(sinceIso: string) {
+    this.maybeFail("listPendingRefundsSince");
+    return this.refunds.filter((r) => r.status === "pending" && r.created_at >= sinceIso).map((r) => this.refundView(r));
+  }
+  async markOrderRefunded(orderId: string, fromStatus: OrderStatus, changedBy: string | null, note: string) {
+    this.maybeFail("markOrderRefunded");
+    const o = this.orders.get(orderId);
+    if (!o || o.status !== fromStatus) return false;
+    o.status = "refunded";
+    this.history.push({ order_id: orderId, from: fromStatus, to: "refunded", note: note.slice(0, 500), changed_by: changedBy });
+    return true;
+  }
+  async restockOrder(orderId: string) {
+    this.maybeFail("restockOrder");
+    if (this.orders.get(orderId)?.kind === "stock") this.restockCalls.push(orderId);
   }
 }
 

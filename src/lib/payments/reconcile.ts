@@ -4,6 +4,7 @@ import { getDefaultPaymentsDeps, type PaymentsDeps } from "@/lib/payments/deps";
 import { resumeOpenDuplicateRefunds } from "@/lib/payments/duplicates";
 import { processPaymentObjectWith } from "@/lib/payments/process";
 import type { DuplicateRefundOutcome, ProcessResult } from "@/lib/payments/process-types";
+import { refreshPendingRefundsSince, type RefreshSummary } from "@/lib/payments/refund-refresh";
 
 // Сверка платежей, если webhook не дошёл или обработка оборвалась (Чертёж 5.9.1 «Fallback», Edge Case 4, 5.12 шаг 4).
 //  - reconcileOrderPayments(orderId) — для GET /api/orders/[number] (День 5): заказ в pending_payment или cancelled
@@ -12,7 +13,9 @@ import type { DuplicateRefundOutcome, ProcessResult } from "@/lib/payments/proce
 //    последняя проверка (payments.updated_at) старше 60 с → GET /v3/payments/{id} → processPaymentObject.
 //    Каждая проверка обновляет строку payments → updated_at сдвигается (не чаще раза в 60 с).
 //  - reconcileStalePayments() — для cron (День 7): все pending младше 48 ч + все succeeded у неоплаченных заказов
-//    + незавершённые автоматические возвраты повторной оплаты (сироты, один автоповтор после сети/5xx).
+//    + незавершённые автоматические возвраты повторной оплаты (сироты, один автоповтор после сети/5xx)
+//    + pending ручные возвраты (GET /v3/refunds: succeeded → общий finalizeSucceededRefund, canceled → failed;
+//    у ЮKassa нет уведомления об отмене возврата), День 6.
 // Ни одна функция не бросает: страница заказа и cron не должны падать из-за ЮKassa/БД; ошибки — в лог и в итог.
 
 export const RECONCILE_MIN_INTERVAL_SECONDS = 60;
@@ -30,6 +33,8 @@ export interface ReconcileSummary {
   items: ReconcileItem[];
   /** Только cron: продолженные автоматические возвраты повторной оплаты. */
   refunds?: DuplicateRefundOutcome[];
+  /** Только cron: доводка pending ручных возвратов (refund-refresh.ts). */
+  manual_refunds?: RefreshSummary;
 }
 
 async function reconcileOne(deps: PaymentsDeps, p: PaymentRow): Promise<ReconcileItem> {
@@ -87,6 +92,13 @@ export async function reconcileStalePaymentsWith(deps: PaymentsDeps): Promise<Re
     summary.refunds = await resumeOpenDuplicateRefunds(deps, since);
   } catch (err) {
     console.error({ scope: "payments.reconcileStale.refunds", err });
+    summary.failed += 1;
+  }
+  try {
+    summary.manual_refunds = await refreshPendingRefundsSince(deps, since);
+    summary.failed += summary.manual_refunds.errors;
+  } catch (err) {
+    console.error({ scope: "payments.reconcileStale.manualRefunds", err });
     summary.failed += 1;
   }
   return summary;

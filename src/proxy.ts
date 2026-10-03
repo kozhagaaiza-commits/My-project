@@ -43,6 +43,11 @@ export async function proxy(request: NextRequest) {
   }
 
   const isAdminPage = isUnder(pathname, "/admin");
+  // Dev-подмена (как в requireAdminPage): ADMIN_FIXTURES=1 вне production пускает на /admin без сессии.
+  // Инлайн-условие — бандлер вырезает ветку из production-сборки.
+  if (process.env.NODE_ENV !== "production" && process.env.ADMIN_FIXTURES === "1" && isAdminPage) {
+    return NextResponse.next();
+  }
   const isAccountPage = isUnder(pathname, "/account");
   const adminNext = `${pathname}${search}`;
 

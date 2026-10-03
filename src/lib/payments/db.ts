@@ -5,7 +5,7 @@ import { one, rows } from "@/lib/catalog/db";
 import {
   ORDER_FOR_PAYMENT_COLUMNS, ORDER_ITEM_COLUMNS, PAYMENT_COLUMNS, REFUND_COLUMNS, UNPAID_ORDER_STATUSES,
   appendAttention, attentionRow, markPaidResult, orderForPaymentRow, orderItemRow, paymentRow, refundRow,
-  type MarkPaidResult, type NewPayment, type NewRefund, type OrderForPayment, type OrderItemRow, type PaymentPatch,
+  type MarkPaidResult, type NewPayment, type NewRefund, type OrderForPayment, type OrderItemRow, type OrderStatus, type PaymentPatch,
   type PaymentRow, type PaymentStatus, type RefundPatch, type RefundRow,
 } from "@/lib/payments/db-rows";
 
@@ -46,6 +46,15 @@ export interface PaymentsRepo {
   listSucceededPaymentsOfUnpaidOrders(): Promise<PaymentRow[]>;
   /** Незавершённые автоматические возвраты (reason, status pending|failed), созданные не раньше sinceIso. */
   listOpenRefundsByReason(reason: string, sinceIso: string): Promise<RefundRow[]>;
+  /** refunds.status = 'pending', созданные не раньше sinceIso (сверка cron: возвраты, по которым не пришёл webhook). */
+  listPendingRefundsSince(sinceIso: string): Promise<RefundRow[]>;
+  /**
+   * Полный возврат: orders.status fromStatus → refunded (условный update — статус не изменился с момента чтения)
+   * + строка order_status_history. true — переход сделал именно этот вызов. Два запроса без транзакции (см. отчёт Дня 6).
+   */
+  markOrderRefunded(orderId: string, fromStatus: OrderStatus, changedBy: string | null, note: string): Promise<boolean>;
+  /** rpc restock_order(p_order_id) — остатки позиций заказа обратно на склад (только kind = 'stock', 2.14). */
+  restockOrder(orderId: string): Promise<void>;
 }
 
 function check(res: { error: { message: string; code?: string } | null }, scope: string) {
@@ -145,6 +154,22 @@ export function createPaymentsRepo(c: Db): PaymentsRepo {
       const res = await c.from("refunds").select(REFUND_COLUMNS).eq("reason", reason).in("status", ["pending", "failed"])
         .gte("created_at", sinceIso).order("created_at", { ascending: true });
       return rows(refundRow, res, "refunds.openByReason");
+    },
+    async listPendingRefundsSince(sinceIso) {
+      const res = await c.from("refunds").select(REFUND_COLUMNS).eq("status", "pending")
+        .gte("created_at", sinceIso).order("created_at", { ascending: true });
+      return rows(refundRow, res, "refunds.pendingSince");
+    },
+    async markOrderRefunded(orderId, fromStatus, changedBy, note) {
+      const res = await c.from("orders").update({ status: "refunded" }).eq("id", orderId).eq("status", fromStatus).select("id");
+      if (rows(z.object({ id: z.string() }), res, "orders.markRefunded").length === 0) return false;
+      check(await c.from("order_status_history").insert({
+        order_id: orderId, from_status: fromStatus, to_status: "refunded", changed_by: changedBy, note: note.slice(0, 500),
+      }), "order_status_history.insert");
+      return true;
+    },
+    async restockOrder(orderId) {
+      check(await c.rpc("restock_order", { p_order_id: orderId }), "rpc.restock_order");
     },
   };
 }

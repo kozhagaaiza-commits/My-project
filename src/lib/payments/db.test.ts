@@ -117,6 +117,40 @@ describe("payments/db: явные колонки, без служебных по
       ["gte", "created_at", "2026-09-29T12:00:00.000Z"], ["order", "created_at", { ascending: true }]]);
   });
 
+  it("возвраты (День 6): REFUND_COLUMNS с restock и created_by; pending за окно сверки", async () => {
+    assert.match(REFUND_COLUMNS, /,restock,created_by$/);
+    const { calls, repo } = recorder([{ data: [], error: null }]);
+    await repo.listPendingRefundsSince("2026-09-29T12:00:00.000Z");
+    assert.deepEqual(calls, [["from", "refunds"], ["select", REFUND_COLUMNS], ["eq", "status", "pending"],
+      ["gte", "created_at", "2026-09-29T12:00:00.000Z"], ["order", "created_at", { ascending: true }]]);
+    const ins = recorder([{ data: { id: "r1", order_id: "o1", payment_id: "p1", yookassa_refund_id: null, amount: 100, status: "pending", reason: "Брак диска", error_message: null, created_at: "2026-10-01T12:30:00+00:00", restock: true, created_by: "u1" }, error: null }]);
+    const row = { order_id: "o1", payment_id: "p1", amount: 100, reason: "Брак диска", restock: true, created_by: "u1" };
+    const res = await ins.repo.insertRefund(row);
+    assert.ok("row" in res && res.row.restock === true && res.row.created_by === "u1");
+    assert.deepEqual(ins.calls[1], ["insert", { ...row, status: "pending" }]);
+  });
+
+  it("markOrderRefunded: условный update по прочитанному статусу + история; не совпал статус → false без истории", async () => {
+    const won = recorder([{ data: [{ id: "o1" }], error: null }, { data: null, error: null }]);
+    assert.equal(await won.repo.markOrderRefunded("o1", "shipped", "u1", "Возврат: брак"), true);
+    assert.deepEqual(won.calls, [
+      ["from", "orders"], ["update", { status: "refunded" }], ["eq", "id", "o1"], ["eq", "status", "shipped"], ["select", "id"],
+      ["from", "order_status_history"], ["insert", { order_id: "o1", from_status: "shipped", to_status: "refunded", changed_by: "u1", note: "Возврат: брак" }],
+    ]);
+    const lost = recorder([{ data: [], error: null }]);
+    assert.equal(await lost.repo.markOrderRefunded("o1", "paid", null, "x"), false);
+    assert.equal(lost.calls.filter((c) => c[0] === "from").length, 1);
+    await assert.rejects(recorder([{ data: [{ id: "o1" }], error: null }, { data: null, error: { code: "23514", message: "check" } }])
+      .repo.markOrderRefunded("o1", "paid", null, "x"), /order_status_history\.insert: 23514/);
+  });
+
+  it("restockOrder: rpc restock_order(p_order_id); ошибка → исключение", async () => {
+    const { calls, repo } = recorder([{ data: null, error: null }, { data: null, error: { code: "42501", message: "denied" } }]);
+    await repo.restockOrder("o1");
+    assert.deepEqual(calls[0], ["rpc", "restock_order", { p_order_id: "o1" }]);
+    await assert.rejects(repo.restockOrder("o1"), /rpc\.restock_order: 42501/);
+  });
+
   it("ответ неверной формы → исключение Zod", async () => {
     await assert.rejects(recorder([{ data: [{ ...PAYMENT_ROW, amount: "13370000" }], error: null }]).repo.listOrderPayments("o1"));
   });

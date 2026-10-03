@@ -55,7 +55,9 @@ export async function adminRequest<T, M = unknown>(
       return { ok: true, data: raw.data as T, meta: (raw.meta ?? null) as M | null };
     }
     if (res.status === 401 && typeof window !== "undefined") {
-      window.location.assign(`/auth/login?next=${encodeURIComponent(window.location.pathname)}`);
+      const login = new URL("/auth/login", window.location.origin);
+      login.searchParams.set("next", window.location.pathname);
+      window.location.assign(login); // полная перезагрузка: сессия истекла
     }
     const err = raw?.error;
     return {

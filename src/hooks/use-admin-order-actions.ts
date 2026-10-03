@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/admin-ui/toast";
 import { adminRequest, type ApiFailure, type ApiResult } from "@/lib/admin-ui/api";
 import type {
   AdminMetaPatchResult, AdminOrderDetail, AdminRefundResult, AdminStatusChangeResult, OrderStatus,

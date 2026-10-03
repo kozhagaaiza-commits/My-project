@@ -1,14 +1,16 @@
 import "server-only";
 import { rubStringToKopecks } from "@/lib/money";
 import type { PaymentsDeps } from "@/lib/payments/deps";
-import { notifyCustomerRefund } from "@/lib/payments/notify";
 import type { RefundProcessResult } from "@/lib/payments/process-types";
+import { finalizeSucceededRefund } from "@/lib/payments/refund-finalize";
 import type { YookassaRefund } from "@/lib/yookassa";
 
 /**
  * refund.succeeded (объект — из GET /v3/refunds/{id}): refunds.status = 'succeeded', если ещё не succeeded (Блок 3, шаг 3).
  * Строка ищется по yookassa_refund_id; если её нет (ответ на POST /refunds не дошёл) — единственная строка того же платежа
- * без yookassa_refund_id с той же суммой. Кто перевёл статус, тот ставит customer_refund (ровно одно письмо).
+ * без yookassa_refund_id с той же суммой. Дальше — общий finalizeSucceededRefund (тот же путь, что у ручного возврата
+ * из админки): кто перевёл статус, тот переводит заказ в refunded при полном возврате, делает restock и ставит
+ * customer_refund (ровно одно письмо).
  */
 export async function processRefundObjectWith(deps: PaymentsDeps, refund: YookassaRefund): Promise<RefundProcessResult> {
   const { repo } = deps;
@@ -30,13 +32,6 @@ export async function processRefundObjectWith(deps: PaymentsDeps, refund: Yookas
   }
   if (row.status === "succeeded") return { kind: "refund_already_succeeded", refundId: row.id };
 
-  const flipped = await repo.markRefundSucceeded(row.id, refund.id);
-  if (!flipped) return { kind: "refund_already_succeeded", refundId: row.id };
-  try {
-    const order = await repo.getOrder(row.order_id);
-    if (order) await notifyCustomerRefund(deps, order, row.amount);
-  } catch (err) {
-    console.error({ scope: "payments.refund", msg: "customer_refund не поставлен", refund_id: row.id, err });
-  }
-  return { kind: "refund_succeeded", refundId: row.id };
+  const { flipped } = await finalizeSucceededRefund(deps, row, refund.id);
+  return flipped ? { kind: "refund_succeeded", refundId: row.id } : { kind: "refund_already_succeeded", refundId: row.id };
 }

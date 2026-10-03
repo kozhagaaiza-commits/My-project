@@ -16,6 +16,13 @@ export function useAdminOrdersFilters() {
   const filters = parseOrdersFilters(searchParams);
   const [searchInput, setSearchInput] = useState(filters.q);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Последний переход, ещё не отразившийся в URL: быстрые подряд действия не должны затирать друг друга.
+  const pending = useRef<OrdersFilters | null>(null);
+  const urlKey = searchParams.toString();
+
+  useEffect(() => {
+    pending.current = null;
+  }, [urlKey]);
 
   useEffect(
     () => () => {
@@ -27,8 +34,9 @@ export function useAdminOrdersFilters() {
   // Читаем актуальный URL в момент вызова — таймер поиска не должен затирать вкладку, выбранную позже.
   const navigate = useCallback(
     (patch: Partial<OrdersFilters>, resetPage: boolean) => {
-      const current = parseOrdersFilters(window.location.search);
+      const current = pending.current ?? parseOrdersFilters(window.location.search);
       const next = { ...current, ...patch, page: resetPage ? 1 : (patch.page ?? current.page) };
+      pending.current = next;
       router.replace(ordersHref(next), { scroll: false });
     },
     [router],

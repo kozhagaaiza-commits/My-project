@@ -31,9 +31,14 @@ export const TRANSITIONS: Record<OrderKind, Partial<Record<OrderStatus, readonly
 };
 // refunded достигается только из refund-обработчика из любого статуса после paid.
 
-/** Куда админ может перевести заказ из текущего статуса (кнопки на /admin/orders/[id], PATCH …/status). Копия массива. */
-export const allowedTransitions = (kind: OrderKind, status: string): OrderStatus[] =>
-  [...((TRANSITIONS[kind] as Record<string, readonly OrderStatus[] | undefined>)[status] ?? [])];
+/**
+ * Куда админ может перевести заказ из текущего статуса (кнопки на /admin/orders/[id], PATCH …/status). Копия массива.
+ * Только собственные ключи таблицы: строка вроде "__proto__" или "toString" не должна достать свойство прототипа.
+ */
+export function allowedTransitions(kind: OrderKind, status: string): OrderStatus[] {
+  const table = TRANSITIONS[kind] as Record<string, readonly OrderStatus[] | undefined>;
+  return Object.hasOwn(table, status) ? [...(table[status] ?? [])] : [];
+}
 
 export const canTransition = (kind: OrderKind, from: string, to: string): boolean =>
   allowedTransitions(kind, from).some((s) => s === to);

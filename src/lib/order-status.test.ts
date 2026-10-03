@@ -29,6 +29,8 @@ describe("order-status: таблица 5.3", () => {
     assert.deepEqual(allowedTransitions("preorder", "confirmed"), []);
     assert.deepEqual(allowedTransitions("stock", "nope"), []);
     assert.deepEqual(allowedTransitions("stock", "__proto__"), []);
+    assert.deepEqual(allowedTransitions("stock", "toString"), []);
+    assert.equal(canTransition("stock", "constructor", "cancelled"), false);
   });
 
   it("paid, refunded, pending_payment не достижимы ни из одного статуса (только webhook / возврат / создание)", () => {

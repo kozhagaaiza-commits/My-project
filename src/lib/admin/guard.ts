@@ -1,11 +1,15 @@
 import "server-only";
 import { notFound, redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth";
+import { FIXTURE_ADMIN, type AdminApiContext } from "./api-guard";
 
-export interface AdminPageContext {
-  userId: string;
-  email: string | null;
-}
+// Проверка /api/admin/* (requireAdminApi, authorizeAdminApi) — в api-guard.ts, реэкспорт ниже.
+export {
+  ADMIN_RATE_LIMIT, authorizeAdminApi, authorizeAdminApiWith, requireAdminApi,
+  type AdminApiAuth, type AdminApiDeps, type AdminApiOptions,
+} from "./api-guard";
+
+export type AdminPageContext = AdminApiContext;
 
 /**
  * Проверка роли admin для страниц /admin/* (layout). Не вошёл → /auth/login?next=/admin;
@@ -14,12 +18,10 @@ export interface AdminPageContext {
  */
 export async function requireAdminPage(): Promise<AdminPageContext> {
   if (process.env.NODE_ENV !== "production" && process.env.ADMIN_FIXTURES === "1") {
-    return { userId: "00000000-0000-4000-8000-000000000001", email: "admin@fixtures.local" };
+    return { ...FIXTURE_ADMIN };
   }
   const ctx = await getSessionContext();
   if (!ctx.user) redirect("/auth/login?next=/admin");
   if (ctx.role !== "admin") notFound();
   return { userId: ctx.user.id, email: ctx.user.email ?? null };
 }
-
-// TODO(backend-engineer, День 6): добавить requireAdminApi(request) для /api/admin/* (401/403, Origin на мутациях) — см. 3.0.

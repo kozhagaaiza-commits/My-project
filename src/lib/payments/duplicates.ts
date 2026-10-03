@@ -2,9 +2,11 @@ import "server-only";
 import { formatRub, rubStringToKopecks } from "@/lib/money";
 import type { OrderForPayment, OrderItemRow, PaymentRow, RefundRow } from "@/lib/payments/db-rows";
 import type { PaymentsDeps } from "@/lib/payments/deps";
-import { notifyAdminAttention, notifyCustomerRefund } from "@/lib/payments/notify";
+import { notifyAdminAttention } from "@/lib/payments/notify";
 import type { DuplicateRefundOutcome, ProcessResult } from "@/lib/payments/process-types";
 import { refundReceiptItems } from "@/lib/payments/receipt";
+import { finalizeSucceededRefund } from "@/lib/payments/refund-finalize";
+import { RESERVED_REFUND_REASON } from "@/lib/schemas/admin-refund";
 import { YookassaApiError, buildReceipt, type YookassaPayment, type YookassaRefund } from "@/lib/yookassa";
 
 // Повторная оплата заказа (Edge Case 36): mark_order_paid = already_paid, а у заказа есть ДРУГОЙ succeeded-платёж →
@@ -20,7 +22,8 @@ import { YookassaApiError, buildReceipt, type YookassaPayment, type YookassaRefu
 //  - Строка pending без yookassa_refund_id старше 5 минут (процесс упал между insert и POST) — повтор с тем же refund_<id>.
 //  - failed после сети/5xx — ОДИН автоповтор с тем же ключом при следующей обработке; после 4xx — только вручную.
 
-export const DUPLICATE_REFUND_REASON = "Повторная оплата";
+/** Совпадает с RESERVED_REFUND_REASON: ручной возврат с этой причиной запрещён схемой refundBody (индекс 2.20). */
+export const DUPLICATE_REFUND_REASON = RESERVED_REFUND_REASON;
 export const DUPLICATE_LOSER_REASON = "Повторная оплата — дубликат записи, в ЮKassa не отправлялся";
 export const ORPHAN_REFUND_AFTER_MS = 5 * 60_000;
 export const RETRYABLE_PREFIX = "Сбой связи с ЮKassa, будет автоповтор: ";
@@ -95,7 +98,7 @@ async function manualFailure(deps: PaymentsDeps, ctx: OrderCtx, t: Target, refun
 async function applyRefundResponse(deps: PaymentsDeps, ctx: OrderCtx, t: Target, refund: RefundRow, r: YookassaRefund): Promise<DuplicateRefundOutcome> {
   const base = { payment_id: t.row.yookassa_payment_id, refund_id: refund.id };
   if (r.status === "succeeded") {
-    if (await deps.repo.markRefundSucceeded(refund.id, r.id)) await notifyCustomerRefund(deps, (await ctx.load()).order, refund.amount);
+    await finalizeSucceededRefund(deps, refund, r.id); // общий путь: refunds → succeeded, customer_refund (заказ остаётся paid)
     return { ...base, status: "succeeded" };
   }
   if (r.status === "pending") {
