@@ -14,6 +14,10 @@ import { createCreateOrderHandler } from "./handler";
 // POST /api/orders — создание заказа, бронь 30 минут, платёж ЮKassa (Блок 3 «Корзина и заказ», US-003).
 // Логика и порядок проверок — в handler.ts; здесь только реальные зависимости.
 // Service-role (Блок 5.10): create_order и чтение служебных колонок заказа — только на сервере.
+// Route segment config (Next 16): потолок времени функции. Платёж ЮKassa ограничен PAYMENT_DEADLINE_MS (25 с),
+// чтобы успеть ответить 502 с ссылкой на заказ до обрыва функции платформой (Edge Case 2).
+export const maxDuration = 60;
+
 const handler = createCreateOrderHandler({
   assertSameOrigin,
   limitOrders,

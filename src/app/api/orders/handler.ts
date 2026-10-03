@@ -5,12 +5,15 @@ import { PRIVATE_NO_STORE, internalError } from "@/lib/catalog/http";
 import { formatRub } from "@/lib/money";
 import type { OrderSessionContext } from "@/lib/orders/access";
 import { buildCreateOrderParams, type CreateOrderParams, type CreatedOrder, type OrderStateRow } from "@/lib/orders/db";
-import { classifyCreateOrderError, isRetryableDbError, paymentOrderErrorCode, type CreateOrderFailure } from "@/lib/orders/errors";
+import {
+  DbError, classifyCreateOrderError, isRetryableDbError, paymentOrderErrorCode, type CreateOrderFailure,
+} from "@/lib/orders/errors";
 import {
   MAX_PENDING_ORDERS_PER_EMAIL, fieldErrorsByPath, mixedKinds, orderNotPayable, orderPaymentProviderError,
-  orderValidationError, outOfStock, priceChanged, productUnavailable, qtyLimit, tooManyPendingOrders,
+  orderReplayConflict, orderValidationError, outOfStock, priceChanged, productUnavailable, qtyLimit, tooManyPendingOrders,
 } from "@/lib/orders/responses";
-import type { CreatePaymentOptions, CreatePaymentResult } from "@/lib/payments/create";
+import type { CreatePaymentResult } from "@/lib/payments/create";
+import { PAYMENT_DEADLINE_MS, isSameCustomer, logPaymentFailure, type OrderPaymentOptions } from "@/lib/orders/replay";
 import { createOrderBody, type CreateOrderBody } from "@/lib/schemas/orders";
 import type { CartProduct } from "@/types/cart";
 import type { CatalogContext } from "@/types/catalog";
@@ -18,7 +21,8 @@ import type { CreateOrderResponse } from "@/types/orders";
 
 // Тело POST /api/orders (Блок 3; US-003; BR-02/03/04/05/07/10/11/18; Edge Cases 1, 10, 20, 27, 43).
 // Все зависимости внедряются (route.ts — реальные), модуль не импортирует env и service-role клиент.
-// Порядок: Origin → rate limit (fail-closed) → JSON → Zod → сессия → BR-18 → токен → create_order → платёж → 201.
+// Порядок: Origin → rate limit (fail-closed) → JSON → Zod → сессия → BR-18 → токен → create_order → владелец → платёж → 201.
+// Логи — без ПДн и без client_request_id (по нему восстанавливается ссылка на заказ, A28).
 
 export interface CreateOrderDeps {
   assertSameOrigin(request: Request): Response | null;
@@ -30,7 +34,7 @@ export interface CreateOrderDeps {
   findOrderByClientRequestId(clientRequestId: string): Promise<CreatedOrder | null>;
   getOrderState(orderId: string): Promise<OrderStateRow | null>;
   getCartProducts(ids: string[], ctx: CatalogContext): Promise<CartProduct[]>;
-  createPayment(orderId: string, opts: CreatePaymentOptions): Promise<CreatePaymentResult>;
+  createPayment(orderId: string, opts: OrderPaymentOptions): Promise<CreatePaymentResult>;
   tokens: {
     orderToken(clientRequestId: string): string;
     hashOrderToken(token: string): string;
@@ -42,14 +46,13 @@ export interface CreateOrderDeps {
 
 /** Повтор платежа при повторе запроса (Edge Case 1): pending-платёж моложе 10 минут переиспользуется. */
 export const ORDER_PAYMENT_REUSE_SECONDS = 600;
-
 /** create_order; deadlock / serialization / гонка уникальности — один повтор, затем исключение (→ 500). */
 async function createWithRetry(deps: CreateOrderDeps, params: CreateOrderParams): Promise<CreatedOrder> {
   try {
     return await deps.createOrder(params);
   } catch (err) {
     if (!isRetryableDbError(err)) throw err;
-    console.error({ scope: "orders.create.retry", clientRequestId: params.p_order.client_request_id, err });
+    console.error({ scope: "orders.create.retry", pgCode: err instanceof DbError ? err.pgCode : undefined });
     return await deps.createOrder(params);
   }
 }
@@ -130,9 +133,12 @@ async function handle(request: Request, deps: CreateOrderDeps): Promise<Response
     created = existing;
   }
 
-  const orderUrl = deps.tokens.orderPageUrl(created.order_number, token);
   const state = await deps.getOrderState(created.order_id);
   if (!state) throw new Error(`orders.create: order ${created.order_id} not found after create_order`);
+  // create_order идемпотентен по client_request_id и вернёт существующий заказ любому, кто знает этот uuid.
+  // Ссылку (order_url / confirmation_url) получает только оформивший заказ — иначе 409 без деталей.
+  if (!isSameCustomer(state, { email: body.customer.email, userId: session.userId })) return orderReplayConflict();
+  const orderUrl = deps.tokens.orderPageUrl(created.order_number, token);
   const now = deps.now();
   const reservedUntil = state.reserved_until === null ? null : new Date(state.reserved_until);
 
@@ -147,16 +153,19 @@ async function handle(request: Request, deps: CreateOrderDeps): Promise<Response
 
   let payment: CreatePaymentResult;
   try {
-    payment = await deps.createPayment(created.order_id, { reuseWithinSeconds: ORDER_PAYMENT_REUSE_SECONDS });
+    payment = await deps.createPayment(created.order_id, {
+      reuseWithinSeconds: ORDER_PAYMENT_REUSE_SECONDS, deadlineMs: PAYMENT_DEADLINE_MS,
+    });
   } catch (err) {
     // Гонка: заказ отменён (бронь истекла) между проверкой выше и созданием платежа → 409, как при повторе.
     if (paymentOrderErrorCode(err) === "ORDER_NOT_PAYABLE") return orderNotPayable();
     if (paymentOrderErrorCode(err) === "ORDER_NOT_FOUND") throw err;
-    payment = { ok: false, kind: "provider_unavailable", message: err instanceof Error ? err.message : String(err) };
     console.error({ scope: "orders.create.payment", orderId: created.order_id, err });
+    return orderPaymentProviderError(orderUrl);
   }
   if (!payment.ok) {
-    console.error({ scope: "orders.create.payment", orderId: created.order_id, kind: payment.kind, message: payment.message, yookassaCode: payment.yookassaCode });
+    // provider_unavailable и provider_rejected (4xx, Edge Case 39) — один и тот же 502 из Блока 3.
+    logPaymentFailure("orders.create.payment", created.order_id, payment);
     return orderPaymentProviderError(orderUrl);
   }
   return created201(created, (reservedUntil ?? now).toISOString(), payment.confirmationUrl, orderUrl);

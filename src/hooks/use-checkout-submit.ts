@@ -97,6 +97,10 @@ export function useCheckoutSubmit({ setError, setFocus, refreshPrices, atelierPr
       case "cart_problem":
         leaveToCart(outcome.message);
         return true;
+      case "new_attempt":
+        clearRequestId(); // следующая отправка — новая попытка с новым client_request_id
+        toast.error(outcome.message);
+        return false;
       case "toast":
       case "network":
         toast.error(outcome.message);

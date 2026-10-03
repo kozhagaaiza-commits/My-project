@@ -8,6 +8,8 @@ import type {
 export const NETWORK_MESSAGE = "Нет соединения. Данные формы сохранены";
 export const FORBIDDEN_MESSAGE = "Не удалось отправить заказ. Обновите страницу";
 export const GENERIC_ERROR_MESSAGE = "Не удалось создать заказ. Повторите попытку";
+export const SERVICE_UNAVAILABLE_MESSAGE = "Сервис временно недоступен, попробуйте через несколько минут";
+export const ORDER_EXPIRED_MESSAGE = "Время на оплату истекло. Оформите заказ заново";
 
 export type CreateOrderResult =
   | { ok: true; data: CreateOrderResponse }
@@ -29,8 +31,13 @@ export type CheckoutOutcome =
   /** toast + redirect /cart (OUT_OF_STOCK, PRODUCT_UNAVAILABLE, MIXED_KINDS, QTY_LIMIT). */
   | { type: "cart_problem"; message: string }
   | { type: "toast"; message: string }
-  /** 502: заказ создан и сохранён, оплата — со страницы заказа. */
-  | { type: "payment_provider_error"; orderUrl: string; orderNumber: string | null }
+  /** 502: заказ создан и сохранён, оплата — со страницы заказа. orderUrl null — ссылка не прошла проверку (только текст). */
+  | { type: "payment_provider_error"; orderUrl: string | null; orderNumber: string | null }
+  /**
+   * ORDER_NOT_PAYABLE / CONFLICT: прежний client_request_id больше не годится (заказ отменён/истёк либо повтор
+   * с другими данными) — id сбрасывается, toast, повторная попытка сразу доступна (уйдёт с новым id).
+   */
+  | { type: "new_attempt"; message: string }
   | { type: "network"; message: string };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -52,15 +59,40 @@ export function parseCreateOrderResponse(status: number, body: unknown): CreateO
   if (status >= 200 && status < 300 && isRecord(body) && isCreateOrderResponse(body.data)) {
     return { ok: true, data: body.data };
   }
+  // 5xx без разбираемого { error } (HTML шлюза, пустое тело): сервис недоступен, а не «нет сети».
+  if (status >= 500) return { ok: false, kind: "api", status, code: "SERVER_ERROR", message: "", details: undefined };
   return { ok: false, kind: "network" };
 }
 
-/** Только http(s): confirmation_url/order_url идут в window.location.assign. */
-export function safeNavigationUrl(url: unknown): string | null {
+/** Окружение проверки ссылок перехода: production и origin текущей страницы (null — неизвестен). */
+export interface NavigationEnv {
+  production: boolean;
+  origin: string | null;
+}
+
+export function currentNavigationEnv(): NavigationEnv {
+  return {
+    production: process.env.NODE_ENV === "production",
+    origin: typeof window === "undefined" ? null : window.location.origin,
+  };
+}
+
+/**
+ * Ссылка для window.location.assign. В production только https:, в dev/тестах — http(s). javascript:/data:,
+ * ссылки с логином/паролем и нечитаемые отбрасываются. Хост-allowlist для платёжной страницы не вводится
+ * (домены ЮKassa могут меняться). sameOrigin = true — дополнительно origin должен совпасть с текущим сайтом.
+ */
+export function safeNavigationUrl(
+  url: unknown, options: { env?: NavigationEnv; sameOrigin?: boolean } = {},
+): string | null {
   if (typeof url !== "string") return null;
+  const env = options.env ?? currentNavigationEnv();
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+    const allowed = env.production ? parsed.protocol === "https:" : parsed.protocol === "https:" || parsed.protocol === "http:";
+    if (!allowed || parsed.username || parsed.password) return null;
+    if (options.sameOrigin && (env.origin === null || parsed.origin !== env.origin)) return null;
+    return parsed.href;
   } catch {
     return null;
   }
@@ -93,14 +125,18 @@ function isPriceChanged(d: unknown): d is PriceChangedDetails {
 const isProviderDetails = (d: unknown): d is PaymentProviderErrorDetails => isRecord(d) && typeof d.order_url === "string";
 
 /** Маппинг результата POST /api/orders на действие UI — все коды Блока 3. */
-export function resolveCreateOrderResult(result: CreateOrderResult): CheckoutOutcome {
+export function resolveCreateOrderResult(
+  result: CreateOrderResult, env: NavigationEnv = currentNavigationEnv(),
+): CheckoutOutcome {
   if (!result.ok && result.kind === "network") return { type: "network", message: NETWORK_MESSAGE };
+  // order_url — страница нашего сайта: чужой origin не открываем.
+  const ownOrderUrl = (url: unknown) => safeNavigationUrl(url, { env, sameOrigin: true });
 
   if (result.ok) {
-    const confirmationUrl = safeNavigationUrl(result.data.confirmation_url);
+    const confirmationUrl = safeNavigationUrl(result.data.confirmation_url, { env });
     if (confirmationUrl) return { type: "success", confirmationUrl, orderNumber: result.data.order_number };
     // Заказ создан, но платёжная ссылка непригодна — ведём на страницу заказа (там «Оплатить»).
-    const orderUrl = safeNavigationUrl(result.data.order_url);
+    const orderUrl = ownOrderUrl(result.data.order_url);
     return orderUrl
       ? { type: "payment_provider_error", orderUrl, orderNumber: result.data.order_number }
       : { type: "toast", message: GENERIC_ERROR_MESSAGE };
@@ -126,12 +162,20 @@ export function resolveCreateOrderResult(result: CreateOrderResult): CheckoutOut
     case "RATE_LIMITED":
       return { type: "toast", message };
     case "PAYMENT_PROVIDER_ERROR": {
-      const orderUrl = isProviderDetails(details) ? safeNavigationUrl(details.order_url) : null;
-      return orderUrl
-        ? { type: "payment_provider_error", orderUrl, orderNumber: orderNumberFromUrl(orderUrl) }
-        : { type: "toast", message };
+      if (!isProviderDetails(details)) return { type: "toast", message };
+      // Заказ создан даже при непригодной ссылке: показываем текст диалога, но никуда не ведём.
+      const orderUrl = ownOrderUrl(details.order_url);
+      return {
+        type: "payment_provider_error", orderUrl,
+        orderNumber: orderNumberFromUrl(orderUrl ?? details.order_url),
+      };
     }
+    case "ORDER_NOT_PAYABLE":
+      return { type: "new_attempt", message: ORDER_EXPIRED_MESSAGE };
+    case "CONFLICT":
+      return { type: "new_attempt", message: message || GENERIC_ERROR_MESSAGE };
     default:
+      if (status >= 500) return { type: "toast", message: SERVICE_UNAVAILABLE_MESSAGE };
       return { type: "toast", message: message || GENERIC_ERROR_MESSAGE };
   }
 }

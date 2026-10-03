@@ -19,7 +19,11 @@ const orderKind = z.enum(["stock", "preorder"]);
 
 /** Колонки для проверки доступа и оплаты (public_token_hash — только сравнение на сервере, наружу не уходит). */
 export const ORDER_ACCESS_COLUMNS = "id,number,status,kind,user_id,public_token_hash,reserved_until,total";
-export const ORDER_STATE_COLUMNS = "id,status,reserved_until";
+/**
+ * Состояние заказа после create_order + владелец для проверки повтора (customer_email, user_id): ссылка с токеном
+ * отдаётся только тому, кто оформил заказ. Читается service-role; наружу email не уходит.
+ */
+export const ORDER_STATE_COLUMNS = "id,status,reserved_until,customer_email,user_id";
 export const ORDER_IDEMPOTENCY_COLUMNS = "id,number,total,kind";
 
 export const createdOrderRow = z.object({
@@ -42,7 +46,13 @@ export const orderAccessRow = z.object({
 });
 export type OrderAccessRow = z.infer<typeof orderAccessRow>;
 
-export const orderStateRow = z.object({ id: z.string(), status: orderStatus, reserved_until: z.string().nullable() });
+export const orderStateRow = z.object({
+  id: z.string(),
+  status: orderStatus,
+  reserved_until: z.string().nullable(),
+  customer_email: z.string(),
+  user_id: z.string().nullable(),
+});
 export type OrderStateRow = z.infer<typeof orderStateRow>;
 
 const idempotencyRow = z.object({ id: z.string(), number: z.string(), total: z.number().int(), kind: orderKind });
@@ -137,7 +147,7 @@ export async function selectOrderForAccess(c: Db, number: string): Promise<Order
   return data === null ? null : orderAccessRow.parse(data);
 }
 
-/** Статус и бронь по id (ответ 201 POST /api/orders: reserved_until). */
+/** Статус, бронь и владелец по id (ответ 201 POST /api/orders: reserved_until; проверка повтора). */
 export async function selectOrderState(c: Db, id: string): Promise<OrderStateRow | null> {
   const { data, error } = await c.from("orders").select(ORDER_STATE_COLUMNS).eq("id", id).maybeSingle();
   check("orders.state", error);

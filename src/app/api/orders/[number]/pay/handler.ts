@@ -4,7 +4,8 @@ import { ORDER_TOKEN_RE, verifyOrderAccess, type OrderSessionContext } from "@/l
 import type { OrderAccessRow } from "@/lib/orders/db";
 import { paymentOrderErrorCode } from "@/lib/orders/errors";
 import { orderNotFound, orderNotPayable, payPaymentProviderError } from "@/lib/orders/responses";
-import type { CreatePaymentOptions, CreatePaymentResult } from "@/lib/payments/create";
+import { PAYMENT_DEADLINE_MS, logPaymentFailure, type OrderPaymentOptions } from "@/lib/orders/replay";
+import type { CreatePaymentResult } from "@/lib/payments/create";
 import { orderParams } from "@/lib/schemas/orders";
 import type { PayOrderResponse } from "@/types/orders";
 
@@ -15,13 +16,13 @@ import type { PayOrderResponse } from "@/types/orders";
 
 export interface PayOrderDeps {
   assertSameOrigin(request: Request): Response | null;
-  /** 10 / 600 с на заказ (ключ pay:<number>); при сбое хранилища лимитов БРОСАЕТ (→ 500). */
-  limitPay(orderNumber: string): Promise<Response | null>;
+  /** 10 / 600 с на заказ с IP (pay:<number>:<ip>) и 100 / 600 с на заказ (pay:<number>); сбой хранилища — БРОСАЕТ (→ 500). */
+  limitPay(request: Request, orderNumber: string): Promise<Response | null>;
   getSessionContext(): Promise<OrderSessionContext>;
   selectOrderForAccess(orderNumber: string): Promise<OrderAccessRow | null>;
   /** rpc cancel_expired_orders(); ошибка не роняет запрос. */
   cancelExpiredOrders(): Promise<number>;
-  createPayment(orderId: string, opts: CreatePaymentOptions): Promise<CreatePaymentResult>;
+  createPayment(orderId: string, opts: OrderPaymentOptions): Promise<CreatePaymentResult>;
   now(): Date;
 }
 
@@ -41,7 +42,7 @@ async function handle(request: Request, routeCtx: PayRouteContext, deps: PayOrde
   if (!params.success) return orderNotFound();
   const number = params.data.number;
 
-  const limited = await deps.limitPay(number);
+  const limited = await deps.limitPay(request, number);
   if (limited) return limited;
 
   const t = new URL(request.url).searchParams.get("t");
@@ -69,7 +70,7 @@ async function handle(request: Request, routeCtx: PayRouteContext, deps: PayOrde
 
   let payment: CreatePaymentResult;
   try {
-    payment = await deps.createPayment(order.id, { reuseWithinSeconds: PAY_REUSE_SECONDS });
+    payment = await deps.createPayment(order.id, { reuseWithinSeconds: PAY_REUSE_SECONDS, deadlineMs: PAYMENT_DEADLINE_MS });
   } catch (err) {
     // Гонка (заказ оплачен / отменён после проверки выше) — не сбой провайдера: те же ответы, что без гонки.
     const code = paymentOrderErrorCode(err);
@@ -79,7 +80,8 @@ async function handle(request: Request, routeCtx: PayRouteContext, deps: PayOrde
     return payPaymentProviderError();
   }
   if (!payment.ok) {
-    console.error({ scope: "orders.pay.payment", orderId: order.id, kind: payment.kind, message: payment.message, yookassaCode: payment.yookassaCode });
+    // provider_unavailable (в т.ч. исчерпан deadlineMs) и provider_rejected — один и тот же 502 из Блока 3.
+    logPaymentFailure("orders.pay.payment", order.id, payment);
     return payPaymentProviderError();
   }
   const data: PayOrderResponse = { confirmation_url: payment.confirmationUrl };

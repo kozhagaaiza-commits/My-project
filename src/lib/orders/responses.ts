@@ -11,6 +11,12 @@ export const orderNotFound = () => apiError("NOT_FOUND", "Заказ не най
 export const orderNotPayable = () => apiError("ORDER_NOT_PAYABLE", "Время на оплату истекло. Оформите заказ заново", 409);
 
 /**
+ * Повтор POST /api/orders с client_request_id чужого заказа (другой email или другой пользователь): без деталей
+ * о заказе — клиент генерирует новый client_request_id и отправляет форму заново.
+ */
+export const orderReplayConflict = () => apiError("CONFLICT", "Повторите оформление заказа", 409);
+
+/**
  * details.fields для 400: как z.flattenError(err).fieldErrors, но ключ — полный путь через точку
  * (`customer.phone`, `delivery.address`, `items.0.quantity`), как в примере Блока 3. Корневые ошибки
  * (тело не объект, битый JSON) в fields не попадают — тогда fields = {}.

@@ -3,7 +3,8 @@
 import { parseCreateOrderResponse, type CreateOrderResult } from "@/lib/checkout-response";
 import type { CreateOrderBody } from "@/lib/schemas/orders";
 
-export const CREATE_ORDER_TIMEOUT_MS = 30_000;
+// Сервер ждёт ЮKassa до ~25 с (3 попытки) + запас.
+export const CREATE_ORDER_TIMEOUT_MS = 60_000;
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -25,11 +26,11 @@ export async function createOrder(
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    let body: unknown;
+    let body: unknown = null;
     try {
       body = await res.json();
     } catch {
-      return { ok: false, kind: "network" };
+      // не JSON: 5xx разберёт parseCreateOrderResponse как «сервис недоступен», прочее — как network
     }
     return parseCreateOrderResponse(res.status, body);
   } catch {

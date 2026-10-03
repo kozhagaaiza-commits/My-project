@@ -13,8 +13,10 @@ export const RATE_LIMITS = {
   cart: { limit: 60, windowSeconds: 60 },
   /** POST /api/orders — 5 на IP за 600 с. Ключ `orders:<ip>`. fail-closed (Edge Case 27). */
   orders: { limit: 5, windowSeconds: 600 },
-  /** POST /api/orders/[number]/pay — 10 на заказ за 600 с. Ключ `pay:<number>`. fail-closed. */
+  /** POST /api/orders/[number]/pay — 10 на заказ с одного IP за 600 с. Ключ `pay:<number>:<ip>`. fail-closed. */
   pay: { limit: 10, windowSeconds: 600 },
+  /** POST /api/orders/[number]/pay — общий потолок 100 на заказ за 600 с со всех IP. Ключ `pay:<number>`. fail-closed. */
+  payOrder: { limit: 100, windowSeconds: 600 },
 } as const;
 
 /** Текст 3.0 для 429 по умолчанию. */
@@ -86,12 +88,24 @@ export async function limitOrders(request: Request) {
   return allowed ? null : rateLimitedResponse(windowSeconds, ORDERS_RATE_LIMITED_MESSAGE);
 }
 
+/** Проверка одного ключа: true — разрешено. Внедряется в тестах (без Supabase). */
+export type RateLimitCheck = (key: string, limit: number, windowSeconds: number) => Promise<boolean>;
+
 /**
- * Лимит POST /api/orders/[number]/pay (5.10): 10 / 600 с на заказ, ключ `pay:<number>` (номер уже проверен регэкспом).
- * fail-closed, как у заказов: каждый вызов может создать платёж ЮKassa; лимит на заказ ограничивает и перебор токена.
+ * Лимит POST /api/orders/[number]/pay (5.10 «10 на заказ»): `pay:<number>:<ip>` 10 / 600 с — один IP не может
+ * перебирать токен или плодить платежи; общий потолок `pay:<number>` 100 / 600 с — со всех IP. Сначала ключ IP:
+ * исчерпавший свой лимит IP не расходует общий потолок. Номер уже проверен регэкспом. fail-closed: сбой хранилища
+ * лимитов — исключение (→ 500), каждый вызов может создать платёж ЮKassa.
  */
-export async function limitPay(orderNumber: string) {
-  const { limit, windowSeconds } = RATE_LIMITS.pay;
-  const allowed = await checkRateLimit(`pay:${orderNumber}`, limit, windowSeconds);
-  return allowed ? null : rateLimitedResponse(windowSeconds);
+export async function limitPayWith(check: RateLimitCheck, request: Request, orderNumber: string) {
+  const perIp = RATE_LIMITS.pay;
+  if (!(await check(`pay:${orderNumber}:${getClientIp(request)}`, perIp.limit, perIp.windowSeconds))) {
+    return rateLimitedResponse(perIp.windowSeconds);
+  }
+  const total = RATE_LIMITS.payOrder;
+  if (!(await check(`pay:${orderNumber}`, total.limit, total.windowSeconds))) return rateLimitedResponse(total.windowSeconds);
+  return null;
 }
+
+export const limitPay = (request: Request, orderNumber: string) =>
+  limitPayWith((key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds), request, orderNumber);

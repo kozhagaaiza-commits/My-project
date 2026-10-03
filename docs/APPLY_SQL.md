@@ -7,7 +7,8 @@
 - `supabase/seed.sql` — справочник автомобилей (13 строк);
 - `supabase/rollback_0001.sql` — откат (нужен только при ошибке, см. шаг 5);
 - `supabase/migrations/20261002100000_orders_column_privileges.sql` — миграция 0002, см. шаг 8;
-- `supabase/migrations/20261002110000_reserved_qty_map.sql` — миграция 0003, см. шаг 9.
+- `supabase/migrations/20261002110000_reserved_qty_map.sql` — миграция 0003, см. шаг 9;
+- `supabase/migrations/20261003000000_refunds_duplicate_guard.sql` — защита от двойного возврата, см. шаг 10.
 
 ## 1. Открыть редактор
 Dashboard → проект → **SQL Editor** → **New query**.
@@ -129,6 +130,22 @@ select count(*) from public.reserved_qty_map();
 
 Откат (только по просьбе разработчика): `drop function if exists public.reserved_qty_map();`
 
+## 10. Миграция 20261003000000 (защита от двойного возврата)
+Не даёт вернуть покупателю деньги за повторную оплату дважды. Выполняется **после** шага 9, один раз.
+
+1. **New query** → вставьте всё содержимое `supabase/migrations/20261003000000_refunds_duplicate_guard.sql` → **Run**.
+2. Ожидаемый результат: **Success. No rows returned**. Повторный запуск безопасен.
+3. Проверка:
+
+```sql
+select indexname from pg_indexes where indexname = 'uq_refunds_duplicate_payment';
+```
+Ожидается: 1 строка `uq_refunds_duplicate_payment`.
+
+Ошибка `could not create unique index "uq_refunds_duplicate_payment"` означает, что по какому-то платежу уже два автовозврата. Ничего не правьте — отправьте текст ошибки разработчику.
+
+Откат (только по просьбе разработчика): `drop index if exists public.uq_refunds_duplicate_payment;`
+
 ## Для разработчика
-- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте применённые вручную миграции, иначе CLI выполнит их повторно: `npx supabase migration repair --status applied 0001` `npx supabase migration repair --status applied 20261002100000` и `npx supabase migration repair --status applied 20261002110000`.
+- Если позже применять миграции через CLI (`npx supabase db push`), сначала отметьте применённые вручную миграции, иначе CLI выполнит их повторно: `npx supabase migration repair --status applied 0001` `npx supabase migration repair --status applied 20261002100000` `npx supabase migration repair --status applied 20261002110000` и `npx supabase migration repair --status applied 20261003000000`.
 - Типы: `npx supabase gen types typescript --project-id $PROJECT_REF > src/types/database.ts`.

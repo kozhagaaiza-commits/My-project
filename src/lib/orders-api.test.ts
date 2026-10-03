@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createOrder } from "@/lib/orders-api";
+import { CREATE_ORDER_TIMEOUT_MS, createOrder } from "@/lib/orders-api";
 import type { CreateOrderBody } from "@/lib/schemas/orders";
 
 const body = { client_request_id: "0e7c4a19-5b2d-4f8e-9a63-1d0c8b7e2f45", expected_total: 13370000 } as unknown as CreateOrderBody;
@@ -25,9 +25,27 @@ describe("createOrder (клиент POST /api/orders)", () => {
     const res = await createOrder(body, { fetchImpl: async () => json({ error: { code: "PRICE_CHANGED", message: "Цены изменились", details: { actual_total: 1 } } }, 409) });
     assert.deepEqual(res, { ok: false, kind: "api", status: 409, code: "PRICE_CHANGED", message: "Цены изменились", details: { actual_total: 1 } });
   });
-  it("TypeError сети, не-JSON ответ → network", async () => {
+  it("TypeError сети и не-JSON ответ 2xx/4xx → network", async () => {
     assert.deepEqual(await createOrder(body, { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }), { ok: false, kind: "network" });
-    assert.deepEqual(await createOrder(body, { fetchImpl: async () => new Response("<html>", { status: 504 }) }), { ok: false, kind: "network" });
+    assert.deepEqual(await createOrder(body, { fetchImpl: async () => new Response("<html>", { status: 404 }) }), { ok: false, kind: "network" });
+  });
+  it("не-JSON 5xx → api SERVER_ERROR (сервис недоступен)", async () => {
+    assert.deepEqual(await createOrder(body, { fetchImpl: async () => new Response("<html>", { status: 504 }) }), {
+      ok: false, kind: "api", status: 504, code: "SERVER_ERROR", message: "", details: undefined,
+    });
+  });
+  it("таймаут по умолчанию — 60 с (сервер ждёт ЮKassa до ~25 с)", async (t) => {
+    assert.equal(CREATE_ORDER_TIMEOUT_MS, 60_000);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let aborted = false;
+    const pending = createOrder(body, {
+      fetchImpl: (_url, init) => new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => { aborted = true; reject(new DOMException("aborted", "AbortError")); })),
+    });
+    t.mock.timers.tick(59_999);
+    assert.equal(aborted, false);
+    t.mock.timers.tick(1);
+    assert.equal(aborted, true);
+    assert.deepEqual(await pending, { ok: false, kind: "network" });
   });
   it("таймаут → network", async () => {
     const res = await createOrder(body, {
