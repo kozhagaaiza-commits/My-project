@@ -84,10 +84,12 @@ describe("buildCreateOrderParams (p_order по комментарию 2.14)", ()
 });
 
 describe("запросы к orders: явные колонки, без select(*)", () => {
-  it("колонки не содержат * ; служебные — только public_token_hash для сверки", () => {
+  it("колонки не содержат * ; служебные — только public_token_hash для сверки; email — только для проверки повтора", () => {
     for (const cols of [ORDER_ACCESS_COLUMNS, ORDER_STATE_COLUMNS, ORDER_IDEMPOTENCY_COLUMNS]) {
-      assert.doesNotMatch(cols, /\*|admin_note|attention|telegram_chat_id|customer_/);
+      assert.doesNotMatch(cols, /\*|admin_note|attention|telegram_chat_id|client_request_id|customer_(name|phone)/);
     }
+    assert.equal(ORDER_STATE_COLUMNS, "id,status,reserved_until,customer_email,user_id");
+    assert.doesNotMatch(ORDER_ACCESS_COLUMNS + ORDER_IDEMPOTENCY_COLUMNS, /customer_/);
   });
 
   it("rpc create_order: аргументы p_order/p_items, одна строка ответа", async () => {
@@ -109,8 +111,13 @@ describe("запросы к orders: явные колонки, без select(*)"
     assert.equal(await selectOrderForAccess(access.db, "FC-26-000123"), null);
     assert.deepEqual(access.calls, [["from", "orders"], ["select", ORDER_ACCESS_COLUMNS], ["eq", "number", "FC-26-000123"], ["maybeSingle"]]);
 
-    const state = mockDb({ data: { id: ORDER_ID, status: "pending_payment", reserved_until: "2026-10-01T13:00:00+00:00" }, error: null });
-    assert.deepEqual(await selectOrderState(state.db, ORDER_ID), { id: ORDER_ID, status: "pending_payment", reserved_until: "2026-10-01T13:00:00+00:00" });
+    const stateRow = {
+      id: ORDER_ID, status: "pending_payment", reserved_until: "2026-10-01T13:00:00+00:00",
+      customer_email: "artem.sokolov@yandex.ru", user_id: null,
+    };
+    const state = mockDb({ data: stateRow, error: null });
+    assert.deepEqual(await selectOrderState(state.db, ORDER_ID), stateRow);
+    assert.deepEqual(state.calls[1], ["select", ORDER_STATE_COLUMNS]);
     assert.deepEqual(state.calls[2], ["eq", "id", ORDER_ID]);
 
     const idem = mockDb({ data: { id: ORDER_ID, number: "FC-26-000123", total: 13370000, kind: "stock" }, error: null });

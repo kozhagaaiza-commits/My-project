@@ -48,7 +48,7 @@ function setup(over: Partial<PayOrderDeps> & { order?: OrderAccessRow | null } =
   const order = over.order === undefined ? row() : over.order;
   const deps: PayOrderDeps = {
     assertSameOrigin: (r) => { calls.push("origin"); return (over.assertSameOrigin ?? (() => null))(r); },
-    limitPay: async (n) => { calls.push(`rate:${n}`); return (over.limitPay ?? (async () => null))(n); },
+    limitPay: async (r, n) => { calls.push(`rate:${n}`); return (over.limitPay ?? (async () => null))(r, n); },
     getSessionContext: async () => { calls.push("session"); return (over.getSessionContext ?? (async () => ({ userId: null, role: null, atelierId: null })))(); },
     selectOrderForAccess: async (n) => {
       calls.push(`select:${n}`);
@@ -56,7 +56,7 @@ function setup(over: Partial<PayOrderDeps> & { order?: OrderAccessRow | null } =
     },
     cancelExpiredOrders: async () => { calls.push("cancelExpired"); return (over.cancelExpiredOrders ?? (async () => 0))(); },
     createPayment: async (id, opts) => {
-      calls.push(`pay:${id}:${opts.reuseWithinSeconds}`);
+      calls.push(`pay:${id}:${opts.reuseWithinSeconds}:${opts.deadlineMs}`);
       return (over.createPayment ?? (async () => ({ ok: true as const, confirmationUrl: CONFIRM, paymentId: "p-2", reused: true })))(id, opts);
     },
     now: () => NOW,
@@ -107,7 +107,7 @@ describe("POST /api/orders/[number]/pay: порядок и доступ", () => 
     const res = await call(req());
     assert.equal(res.status, 200);
     assert.deepEqual(await json(res), { data: { confirmation_url: CONFIRM } });
-    assert.deepEqual(calls, ["origin", `rate:${NUMBER}`, "session", `select:${NUMBER}`, "cancelExpired", `pay:${ORDER_ID}:600`]);
+    assert.deepEqual(calls, ["origin", `rate:${NUMBER}`, "session", `select:${NUMBER}`, "cancelExpired", `pay:${ORDER_ID}:600:25000`]);
   });
 
   it("200 владельцу без токена", async () => {
@@ -181,6 +181,24 @@ describe("POST /api/orders/[number]/pay: оплачиваемость и пла�
     const missing = await setup({ createPayment: failWith(new PaymentOrderError("ORDER_NOT_FOUND")) }).call(req());
     assert.equal(missing.status, 404);
     assert.deepEqual(await json(missing), NOT_FOUND);
+  });
+
+  it("provider_rejected (4xx) → тот же 502; лог структурой без текста ЮKassa", async () => {
+    const log = mock.method(console, "error", () => {});
+    const res = await setup({
+      createPayment: async () => ({ ok: false as const, kind: "provider_rejected" as const, message: "receipt.customer.email a@b.ru", yookassaCode: "invalid_request" }),
+    }).call(req());
+    assert.equal(res.status, 502);
+    assert.deepEqual(await json(res), { error: { code: "PAYMENT_PROVIDER_ERROR", message: "Платёжный сервис временно недоступен. Повторите через минуту" } });
+    assert.deepEqual(log.mock.calls.at(-1)?.arguments[0], { scope: "orders.pay.payment", orderId: ORDER_ID, kind: "provider_rejected", yookassaCode: "invalid_request" });
+  });
+
+  it("лимит вызывается с запросом (IP) и номером заказа", async () => {
+    const seen: Array<[string | null, string]> = [];
+    const r = req();
+    r.request.headers.set("x-forwarded-for", "203.0.113.9");
+    await setup({ limitPay: async (rq, n) => { seen.push([rq.headers.get("x-forwarded-for"), n]); return null; } }).call(r);
+    assert.deepEqual(seen, [["203.0.113.9", NUMBER]]);
   });
 
   it("500 при сбое чтения заказа: без стека", async () => {

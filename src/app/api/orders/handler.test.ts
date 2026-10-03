@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, before, describe, it, mock } from "node:test";
+import { inspect } from "node:util";
 import { createCreateOrderHandler, type CreateOrderDeps } from "@/app/api/orders/handler";
 import { apiError } from "@/lib/api-error";
 import { assertSameOrigin } from "@/lib/csrf";
@@ -62,7 +63,7 @@ const pgErr = (code: string, message: string) => new DbError("rpc.create_order",
  * Фейковая «БД»: create_order идемпотентен по client_request_id (как в 2.14), хранит хэш токена.
  * over.createOrder подменяет поведение (ошибки); журнал calls фиксирует порядок вызовов.
  */
-function setup(over: Partial<CreateOrderDeps> & { state?: OrderStateRow | null } = {}) {
+function setup(over: Partial<CreateOrderDeps> & { state?: Partial<OrderStateRow> | null } = {}) {
   const calls: string[] = [];
   const stored = new Map<string, { order: CreatedOrder; params: CreateOrderParams }>();
   const createParams: CreateOrderParams[] = [];
@@ -92,11 +93,18 @@ function setup(over: Partial<CreateOrderDeps> & { state?: OrderStateRow | null }
     getOrderState: async (id) => {
       calls.push("state");
       if (over.getOrderState) return over.getOrderState(id);
-      return over.state === undefined ? { id, status: "pending_payment", reserved_until: RESERVED } : over.state;
+      if (over.state === null) return null;
+      // Владелец — из сохранённого p_order (как в БД); без сохранения (create_order подменён) — email из BODY, гость.
+      const saved = [...stored.values()].find((v) => v.order.order_id === id)?.params.p_order;
+      const base: OrderStateRow = {
+        id, status: "pending_payment", reserved_until: RESERVED,
+        customer_email: saved?.customer_email ?? BODY.customer.email, user_id: saved?.user_id ?? null,
+      };
+      return { ...base, ...over.state };
     },
     getCartProducts: async (ids, ctx) => { calls.push(`products:${ids.join(",")}:${ctx.atelierId}`); return (over.getCartProducts ?? (async () => [WHEEL]))(ids, ctx); },
     createPayment: async (id, opts) => {
-      calls.push(`pay:${id}:${opts.reuseWithinSeconds}`);
+      calls.push(`pay:${id}:${opts.reuseWithinSeconds}:${opts.deadlineMs}`);
       return (over.createPayment ?? (async () => ({ ok: true as const, confirmationUrl: CONFIRM, paymentId: "p-1", reused: false })))(id, opts);
     },
     tokens: {
@@ -172,7 +180,7 @@ describe("POST /api/orders: порядок проверок", () => {
   it("201: Origin → лимит → сессия → BR-18 → create_order → заказ → платёж", async () => {
     const { calls, POST } = setup();
     assert.equal((await POST(req())).status, 201);
-    assert.deepEqual(calls, ["origin", "rate", "session", `count:artem.sokolov@yandex.ru:${CRID}`, "create", "state", `pay:${ORDER_ID}:600`]);
+    assert.deepEqual(calls, ["origin", "rate", "session", `count:artem.sokolov@yandex.ru:${CRID}`, "create", "state", `pay:${ORDER_ID}:600:25000`]);
   });
 });
 
@@ -274,13 +282,13 @@ describe("POST /api/orders: 201 и идемпотентность", () => {
     const b = await json(await POST(req()));
     assert.deepEqual(a, b);
     assert.equal(stored.size, 1);
-    assert.deepEqual(calls.filter((c) => c.startsWith("pay:")), [`pay:${ORDER_ID}:600`, `pay:${ORDER_ID}:600`]);
+    assert.deepEqual(calls.filter((c) => c.startsWith("pay:")), [`pay:${ORDER_ID}:600:25000`, `pay:${ORDER_ID}:600:25000`]);
   });
 
   it("повтор для отменённого / просроченного заказа → 409 ORDER_NOT_PAYABLE без платежа", async () => {
     for (const state of [
-      { id: ORDER_ID, status: "cancelled" as const, reserved_until: RESERVED },
-      { id: ORDER_ID, status: "pending_payment" as const, reserved_until: "2026-10-01T12:00:00+00:00" },
+      { status: "cancelled" as const },
+      { status: "pending_payment" as const, reserved_until: "2026-10-01T12:00:00+00:00" },
     ]) {
       const { calls, POST } = setup({ state });
       const res = await POST(req());
@@ -291,7 +299,7 @@ describe("POST /api/orders: 201 и идемпотентность", () => {
   });
 
   it("повтор для уже оплаченного заказа → 201, confirmation_url ведёт на страницу заказа, платёж не создаётся", async () => {
-    const { calls, POST } = setup({ state: { id: ORDER_ID, status: "paid", reserved_until: null } });
+    const { calls, POST } = setup({ state: { status: "paid", reserved_until: null } });
     const res = await POST(req());
     assert.equal(res.status, 201);
     const data = (await json(res)).data as { confirmation_url: string; order_url: string };
@@ -470,5 +478,91 @@ describe("POST /api/orders: 502 и Cache-Control", () => {
       assert.equal(res.status, status);
       assert.equal(res.headers.get("Cache-Control"), NO_STORE, String(status));
     }
+  });
+});
+
+describe("POST /api/orders: повтор client_request_id чужим (утечка ссылки)", () => {
+  afterEach(() => mock.restoreAll());
+  const CONFLICT = { error: { code: "CONFLICT", message: "Повторите оформление заказа" } };
+  const OWNER = "5d1e7a3c-8b2f-4c6d-9e0a-1f3b5c7d9e21";
+  const asUser = (userId: string | null) => async () => ({ userId, role: userId ? "customer" : null, atelierId: null });
+
+  it("повтор с тем же email (другой регистр, пробелы) → тот же заказ и тот же токен", async () => {
+    const { stored, POST } = setup();
+    const a = await json(await POST(req()));
+    const b = await json(await POST(req({ ...BODY, customer: { ...BODY.customer, email: " ARTEM.Sokolov@yandex.ru " } })));
+    assert.deepEqual(a, b);
+    assert.equal(stored.size, 1);
+    assert.equal((b.data as { order_url: string }).order_url, orderUrl());
+  });
+
+  it("чужой email → 409 CONFLICT без деталей, без ссылки и без платежа", async () => {
+    const { calls, POST } = setup();
+    await POST(req());
+    const res = await POST(req({ ...BODY, customer: { ...BODY.customer, email: "attacker@example.com" } }));
+    assert.equal(res.status, 409);
+    const text = await res.text();
+    assert.deepEqual(JSON.parse(text), CONFLICT);
+    assert.doesNotMatch(text, /FC-26|orders\/|t=|artem/);
+    assert.equal(calls.filter((c) => c.startsWith("pay:")).length, 1);
+  });
+
+  it("заказ привязан к user_id: гость или другой пользователь с тем же email → 409; тот же пользователь → 201", async () => {
+    const { stored, POST } = setup({ getSessionContext: asUser(OWNER) });
+    assert.equal((await POST(req())).status, 201);
+    const params = [...stored.values()][0].params;
+    const replay = (getSessionContext: CreateOrderDeps["getSessionContext"]) => setup({
+      getSessionContext,
+      createOrder: async () => ({ order_id: ORDER_ID, order_number: NUMBER, order_total: 13370000, order_kind: "stock" }),
+      state: { customer_email: params.p_order.customer_email, user_id: params.p_order.user_id },
+    }).POST(req());
+    for (const who of [null, "6e2f8b4d-9c3a-4d7e-a01b-2a4c6d8e0f32"]) {
+      const res = await replay(asUser(who));
+      assert.equal(res.status, 409, String(who));
+      assert.deepEqual(await json(res), CONFLICT);
+    }
+    assert.equal((await replay(asUser(OWNER))).status, 201);
+  });
+
+  it("гостевой заказ (user_id null) повторяет вошедший пользователь с тем же email → 201", async () => {
+    const res = await setup({ getSessionContext: asUser(OWNER), state: { user_id: null } }).POST(req());
+    assert.equal(res.status, 201);
+  });
+
+  it("OUT_OF_STOCK + чужой заказ с этим client_request_id → 409 CONFLICT, а не ссылка", async () => {
+    const existing: CreatedOrder = { order_id: ORDER_ID, order_number: NUMBER, order_total: 13370000, order_kind: "stock" };
+    const res = await setup({
+      createOrder: failWith(pgErr("P0001", `OUT_OF_STOCK:${W}`)), findOrderByClientRequestId: async () => existing,
+      state: { customer_email: "victim@example.com" },
+    }).POST(req());
+    assert.equal(res.status, 409);
+    assert.deepEqual(await json(res), CONFLICT);
+  });
+
+  it("в логах нет client_request_id и ПДн: повтор после deadlock, отказ и исключение платёжки, 500", async () => {
+    const log = mock.method(console, "error", () => {});
+    let n = 0;
+    const created: CreatedOrder = { order_id: ORDER_ID, order_number: NUMBER, order_total: 13370000, order_kind: "stock" };
+    await setup({ createOrder: async () => { if (n++ === 0) throw pgErr("40P01", "deadlock detected"); return created; } }).POST(req());
+    await setup({ createPayment: async () => ({ ok: false as const, kind: "provider_rejected" as const, message: "receipt.customer.email artem.sokolov@yandex.ru", yookassaCode: "invalid_request" }) }).POST(req());
+    await setup({ createPayment: failWith(new Error("socket hang up")) }).POST(req());
+    await setup({ createOrder: failWith(pgErr("40P01", "deadlock detected")) }).POST(req());
+    assert.ok(log.mock.callCount() >= 4);
+    const dump = log.mock.calls.map((c) => inspect(c.arguments, { depth: 10 })).join("\n");
+    assert.doesNotMatch(dump, new RegExp(CRID));
+    assert.doesNotMatch(dump, /artem|Соколов|\+?7\s?916|9165551234/i);
+    const rejected = log.mock.calls.map((c) => c.arguments[0]).find((a) => (a as { kind?: string }).kind === "provider_rejected");
+    assert.deepEqual(rejected, { scope: "orders.create.payment", orderId: ORDER_ID, kind: "provider_rejected", yookassaCode: "invalid_request" });
+  });
+
+  it("дедлайн платежа: deadlineMs 25 000 передаётся; исчерпан (ok:false) → 502 с order_url (Edge Case 2)", async () => {
+    mock.method(console, "error", () => {});
+    const seen: unknown[] = [];
+    const res = await setup({
+      createPayment: async (_id, opts) => { seen.push(opts); return { ok: false as const, kind: "provider_unavailable" as const, message: "deadline exceeded" }; },
+    }).POST(req());
+    assert.deepEqual(seen, [{ reuseWithinSeconds: 600, deadlineMs: 25_000 }]);
+    assert.equal(res.status, 502);
+    assert.deepEqual(((await json(res)).error as { details: unknown }).details, { order_url: orderUrl() });
   });
 });

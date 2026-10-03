@@ -50,3 +50,55 @@ describe("rate limit (5.10)", () => {
     });
   });
 });
+
+describe("limitPayWith: 10 / 600 с на заказ с IP + общий потолок 100 / 600 с на заказ", () => {
+  /** Фиксированное окно в памяти: как check_rate_limit (каждый вызов считается). */
+  function memoryCheck() {
+    const hits = new Map<string, number>();
+    const keys: string[] = [];
+    const check = async (key: string, limit: number) => {
+      keys.push(key);
+      const n = (hits.get(key) ?? 0) + 1;
+      hits.set(key, n);
+      return n <= limit;
+    };
+    return { check, hits, keys };
+  }
+  const reqFrom = (ip: string) => new Request("http://localhost/api/orders/FC-26-000123/pay", { method: "POST", headers: { "x-forwarded-for": ip } });
+
+  it("лимиты 5.10: pay 10/600, payOrder 100/600", () => {
+    assert.deepEqual(mod.RATE_LIMITS.payOrder, { limit: 100, windowSeconds: 600 });
+  });
+
+  it("ключи: сначала pay:<номер>:<ip>, затем pay:<номер>", async () => {
+    const m = memoryCheck();
+    assert.equal(await mod.limitPayWith(m.check, reqFrom("203.0.113.7, 10.0.0.1"), "FC-26-000123"), null);
+    assert.deepEqual(m.keys, ["pay:FC-26-000123:203.0.113.7", "pay:FC-26-000123"]);
+  });
+
+  it("один IP исчерпал свои 10 — 429 (Retry-After 600), другой IP того же заказа проходит; общий потолок не расходуется", async () => {
+    const m = memoryCheck();
+    for (let i = 0; i < 10; i++) assert.equal(await mod.limitPayWith(m.check, reqFrom("203.0.113.7"), "FC-26-000123"), null);
+    const res = await mod.limitPayWith(m.check, reqFrom("203.0.113.7"), "FC-26-000123");
+    assert.equal(res?.status, 429);
+    assert.equal(res?.headers.get("Retry-After"), "600");
+    assert.equal(await mod.limitPayWith(m.check, reqFrom("198.51.100.2"), "FC-26-000123"), null);
+    assert.equal(m.hits.get("pay:FC-26-000123"), 11);
+    assert.equal(await mod.limitPayWith(m.check, reqFrom("203.0.113.7"), "FC-26-000124"), null);
+  });
+
+  it("общий потолок: 100 запросов со 100 разных IP проходят, 101-й с нового IP — 429", async () => {
+    const m = memoryCheck();
+    for (let i = 0; i < 100; i++) assert.equal(await mod.limitPayWith(m.check, reqFrom(`10.0.${Math.floor(i / 250)}.${i % 250}`), "FC-26-000123"), null);
+    const res = await mod.limitPayWith(m.check, reqFrom("192.0.2.200"), "FC-26-000123");
+    assert.equal(res?.status, 429);
+    assert.deepEqual(await res?.json(), {
+      error: { code: "RATE_LIMITED", message: "Слишком много запросов. Повторите через минуту", details: { retry_after_seconds: 600 } },
+    });
+  });
+
+  it("fail-closed: сбой проверки пробрасывается (→ 500 в обработчике)", async () => {
+    const failing = async () => { throw new Error("check_rate_limit: down"); };
+    await assert.rejects(mod.limitPayWith(failing, reqFrom("203.0.113.7"), "FC-26-000123"), /down/);
+  });
+});
