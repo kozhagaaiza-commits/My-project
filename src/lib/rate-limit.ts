@@ -17,6 +17,8 @@ export const RATE_LIMITS = {
   pay: { limit: 10, windowSeconds: 600 },
   /** POST /api/orders/[number]/pay — общий потолок 100 на заказ за 600 с со всех IP. Ключ `pay:<number>`. fail-closed. */
   payOrder: { limit: 100, windowSeconds: 600 },
+  /** GET /api/orders/[number] — 30 на IP за 60 с. Ключ `order:<ip>`. fail-closed (Edge Case 22: перебор номеров). */
+  orderRead: { limit: 30, windowSeconds: 60 },
 } as const;
 
 /** Текст 3.0 для 429 по умолчанию. */
@@ -109,3 +111,16 @@ export async function limitPayWith(check: RateLimitCheck, request: Request, orde
 
 export const limitPay = (request: Request, orderNumber: string) =>
   limitPayWith((key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds), request, orderNumber);
+
+/**
+ * Лимит GET /api/orders/[number] (5.10): 30 / 60 с на IP, ключ `order:<ip>` — общий для всех номеров, иначе перебор
+ * номеров (Edge Case 22) не ограничен. Проверяется ДО разбора номера и токена. fail-closed, как у остальных
+ * эндпоинтов заказа: сбой хранилища лимитов — исключение (→ 500), перебор не пропускается.
+ */
+export async function limitOrderReadWith(check: RateLimitCheck, request: Request) {
+  const { limit, windowSeconds } = RATE_LIMITS.orderRead;
+  return (await check(`order:${getClientIp(request)}`, limit, windowSeconds)) ? null : rateLimitedResponse(windowSeconds);
+}
+
+export const limitOrderRead = (request: Request) =>
+  limitOrderReadWith((key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds), request);

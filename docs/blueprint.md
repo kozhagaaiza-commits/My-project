@@ -2228,8 +2228,8 @@ export const createOrderBody = z.object({
 
 #### `GET /api/orders/[number]?t=<token>`
 
-**Описание:** заказ для страницы статуса. Доступ: `sha256(t) = public_token_hash`, или сессия владельца (`user_id`), или admin. Перед чтением вызывается `cancel_expired_orders()`.
-**Авторизация:** токен / владелец / admin.
+**Описание:** заказ для страницы статуса. Доступ: `sha256(t) = public_token_hash`, или сессия владельца (`user_id`), или admin. Перед чтением вызывается `cancel_expired_orders()`; для заказа в `pending_payment` или `cancelled` — сверка платежей (5.9.1, A35). Чтение — через service-role после проверки доступа, явными колонками (2.18). Та же функция (`getOrderView`, `src/lib/orders/get-view.ts`) используется Server Component страницы `/orders/[number]`.
+**Авторизация:** токен / владелец / admin. Rate limit 30 / 60 с на IP (ключ `order:<ip>`, общий для всех номеров; при сбое хранилища лимитов — `500`, запрос не пропускается). Все ответы — `Cache-Control: private, no-store`.
 
 **Zod:**
 ```ts
@@ -2261,21 +2261,23 @@ export const orderTokenQuery = z.object({ t: z.string().regex(/^[A-Za-z0-9_-]{32
     "delivery": { "method": "cdek_pvz", "method_label": "СДЭК — пункт выдачи", "city": "Казань", "cdek_pvz_code": "KZN45", "address": null },
     "tracking": { "number": "1234567890", "url": "https://www.cdek.ru/ru/tracking?order_id=1234567890" },
     "courier_note": null,
-    "expected_delivery": { "from": "2026-10-04", "to": "2026-10-07" },
+    "expected_delivery": { "from": "2026-10-06", "to": "2026-10-09" },
     "expected_ready_at": null,
     "customer_visible_note": null,
     "reserved_until": null,
     "can_pay": false,
     "telegram_subscribed": true,
     "telegram_link": "https://t.me/forgecarbon_bot?start=o_Xq3vR9kPz2LmN7bT4wYc8HdJ1sFa6GeU",
-    "customer": { "name": "Артём Соколов", "email_masked": "ar***@yandex.ru", "phone_masked": "+7 916 ***-**-34" }
+    "customer": { "name": "Артём Соколов", "email_masked": "ar***@yandex.ru", "phone_masked": "+7 916 ***-**-34" },
+    "cancel_reason": null,
+    "refunded_amount_formatted": null
   }
 }
 ```
 
-`telegram_link` возвращается только при доступе по токену (в нём токен). `can_pay = status === "pending_payment" && reserved_until > now`.
+`telegram_link` возвращается только при доступе по токену (в нём токен); владельцу и admin без токена — `null`. `can_pay = status === "pending_payment" && reserved_until > now`; `reserved_until` — только пока `pending_payment`, иначе `null`. `tracking` — только для СДЭК при заполненном `tracking_number`; `courier_note` — только для `moscow_courier`. `expected_delivery` — только в статусе `shipped`: дата `shipped_at` по Москве + срок способа доставки в рабочих днях (5.3; в примере отгрузка в пятницу 2 октября → 6–9 октября). `expected_ready_at` — только для `preorder`. `cancel_reason` — для `cancelled`, иначе `null`; `refunded_amount_formatted` — сумма возвратов со статусом `succeeded`, если она больше нуля (в том числе частичный возврат), иначе `null` (A39). Маски: email — первые 2 символа локальной части (1, если она короче 4 символов) + `***` + домен; телефон — `+7 XXX ***-**-XX`.
 
-**Ответ 404 (нет заказа или неверный токен — один и тот же ответ):**
+**Ответ 404 (нет заказа, неверный токен, номер или токен не по формату — один и тот же ответ, A39):**
 ```json
 { "error": { "code": "NOT_FOUND", "message": "Заказ не найден" } }
 ```
@@ -4195,7 +4197,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 |----------|-------|------|
 | `POST /api/orders` | 5 на IP | 600 с |
 | `POST /api/orders/[number]/pay` | 10 на заказ и IP (`pay:<номер>:<ip>`) + общий потолок 100 на заказ (`pay:<номер>`) | 600 с |
-| `GET /api/orders/[number]` | 30 на IP | 60 с |
+| `GET /api/orders/[number]` | 30 на IP (`order:<ip>`) | 60 с |
 | `POST /api/cart/validate` | 60 на IP | 60 с |
 | `GET /api/products`, `/api/vehicles/*` | 120 на IP | 60 с |
 | `POST /api/ateliers` | 3 на пользователя | 3600 с |
@@ -4361,6 +4363,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | A36 | `ORDER_TOKEN_SECRET` и ссылки на заказ | Секрет нельзя менять после запуска — все ссылки на заказы перестанут открываться; `order_url` с токеном хранится в `notification_queue.payload` (читает только admin) | Токен вычисляется из секрета (A28); очередь повторной отправки должна содержать готовую ссылку (ревью, День 4) |
 | A37 | Таймауты оформления и оплаты | `maxDuration` 60 с на `POST /api/orders` и `/pay`; общий дедлайн создания платежа 25 с, затем `502` с `order_url`; таймаут клиента для `POST /api/orders` — 60 с | Медленная ЮKassa не должна оставлять покупателя без ссылки на сохранённый заказ (ревью, День 4) |
 | A38 | Ошибки checkout и переходы по ссылкам | На `500` checkout показывает «Сервис временно недоступен, попробуйте через несколько минут» (Edge Case 6); `safeNavigationUrl`: в production только `https`, `order_url` — только своего origin | Понятный текст вместо сырой ошибки; редирект на чужой адрес из ответа API исключён (ревью, День 4) |
+| A39 | `GET /api/orders/[number]` (страница статуса) | Аддитивные поля `OrderView`: `cancel_reason` (для `cancelled`) и `refunded_amount_formatted` (сумма `succeeded`-возвратов, если > 0); номер или токен не по формату Zod → тот же `404 NOT_FOUND` «Заказ не найден», а не `400`; лимит `order:<ip>` 30 / 60 с проверяется до разбора параметров, fail-closed; `Cache-Control: private, no-store`; сверка ждётся не дольше 8 с (остаток — в `after()`), `maxDuration` 30 с; пример `expected_delivery` пересчитан по правилу рабочих дней 5.3 | Состояния «Отменён» и «Возвращён» Блока 4 требуют причины и суммы; ответ `400` отличал бы «битый номер» от «нет заказа» (Edge Case 22); ответ содержит ПДн и ссылку с токеном; медленная ЮKassa (3 × 15 с) не должна вешать страницу (День 5) |
 
 **Известные риски, которые код не закрывает (решает владелец):**
 1. Vercel Hobby по условиям Vercel предназначен для некоммерческого использования. Для интернет-магазина нужен тариф Pro либо перенос фронтенда на VPS (Beget) — архитектура это позволяет без изменений кода (`next start` за nginx).

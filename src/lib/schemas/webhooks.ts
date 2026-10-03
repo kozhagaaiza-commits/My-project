@@ -9,3 +9,14 @@ export const yookassaWebhookBody = z.object({
 });
 
 export type YookassaWebhookBody = z.infer<typeof yookassaWebhookBody>;
+
+// POST /api/webhooks/telegram (Чертёж, Блок 3) — дословно.
+export const telegramUpdate = z.object({
+  update_id: z.number().int(),
+  message: z.object({
+    chat: z.object({ id: z.number().int(), type: z.string() }),
+    text: z.string().max(4096).optional(),
+  }).passthrough().optional(),
+}).passthrough();
+
+export type TelegramUpdate = z.infer<typeof telegramUpdate>;

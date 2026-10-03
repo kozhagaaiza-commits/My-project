@@ -64,16 +64,47 @@ export interface CustomerRefundPayload {
   order_url: string | null;
 }
 
+/** 🏁 Новая заявка ателье: Garage 77, ИНН 7801234567, Санкт-Петербург (US-007+, функция «Опт для ателье»). */
+export interface AdminAtelierAppliedPayload {
+  company_name: string;
+  inn: string;
+  city: string;
+}
+
+/**
+ * «Заказ FC-26-000123: Передан в доставку. Трек СДЭК: 1234567890» (5.9.2, US-004).
+ * status_label — подпись из order-labels.ts (orderStatusLabel). Трек и ссылка отслеживания СДЭК — только для shipped
+ * (для остальных статусов — null). order_url — страница заказа с токеном (может быть null, если ссылку не удалось собрать).
+ */
+export interface CustomerStatusChangedPayload {
+  order_number: string;
+  status: string;
+  status_label: string;
+  tracking_number: string | null;
+  tracking_url: string | null; // https://www.cdek.ru/ru/tracking?order_id=<трек>
+  order_url: string | null;
+}
+
+/** «Заявка Garage 77 одобрена. Цены для ателье доступны после входа на сайт». */
+export interface AtelierApprovedPayload {
+  company_name: string;
+}
+
+/** «Заявка Garage 77 отклонена. Причина: <rejection_reason>. Вы можете подать её повторно». */
+export interface AtelierRejectedPayload {
+  company_name: string;
+  rejection_reason: string;
+}
+
 export interface NotificationPayloads {
   admin_order_paid: AdminOrderPaidPayload;
   customer_order_paid: CustomerOrderPaidPayload;
   admin_attention: AdminAttentionPayload;
   customer_refund: CustomerRefundPayload;
-  // Шаблоны других дней — payload определяют их авторы.
-  admin_atelier_applied: Record<string, unknown>;
-  customer_status_changed: Record<string, unknown>;
-  atelier_approved: Record<string, unknown>;
-  atelier_rejected: Record<string, unknown>;
+  admin_atelier_applied: AdminAtelierAppliedPayload;
+  customer_status_changed: CustomerStatusChangedPayload;
+  atelier_approved: AtelierApprovedPayload;
+  atelier_rejected: AtelierRejectedPayload;
 }
 
 export type NotificationInput = {
