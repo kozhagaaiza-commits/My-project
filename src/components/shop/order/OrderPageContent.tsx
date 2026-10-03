@@ -35,6 +35,9 @@ export function OrderPageContent({ initial, token, fromPayment, botUsername }: O
   usePaymentGoal(view.number, fromPayment, view.status);
 
   const expected = expectedDateText(view);
+  const showTimeline = hasTimelineProgress(view);
+  // Нет ни таймлайна, ни трека (не оплачен / отменён): состав занимает левую колонку, а не пустое место слева.
+  const hasMain = showTimeline || view.tracking !== null || view.courier_note !== null;
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 md:gap-6 md:px-6 md:py-8">
       <OrderHeader number={view.number} status={view.status} statusLabel={view.status_label} />
@@ -42,11 +45,13 @@ export function OrderPageContent({ initial, token, fromPayment, botUsername }: O
       <OrderStateAlert view={view} />
       {view.customer_visible_note && <CustomerNote note={view.customer_visible_note} />}
       <div className="grid gap-5 md:gap-6 lg:grid-cols-12 lg:gap-8">
-        <div className="flex flex-col gap-5 md:gap-6 lg:col-span-7">
-          {hasTimelineProgress(view) && <OrderTimeline view={view} expected={expected} />}
-          <TrackingCard tracking={view.tracking} courierNote={view.courier_note} />
-        </div>
-        <div className="flex flex-col gap-5 md:gap-6 lg:col-span-5">
+        {hasMain && (
+          <div className="flex flex-col gap-5 md:gap-6 lg:col-span-7">
+            {showTimeline && <OrderTimeline view={view} expected={expected} />}
+            <TrackingCard tracking={view.tracking} courierNote={view.courier_note} />
+          </div>
+        )}
+        <div className={`flex flex-col gap-5 md:gap-6 ${hasMain ? "lg:col-span-5" : "lg:col-span-7"}`}>
           <OrderItems view={view} />
           <TelegramBlock subscribed={view.telegram_subscribed} link={view.telegram_link} />
           <OrderSupport botUsername={botUsername} />
