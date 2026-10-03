@@ -1,19 +1,23 @@
 import "server-only";
-import type { PaymentRow } from "@/lib/payments/db";
+import { UNPAID_ORDER_STATUSES, type PaymentRow } from "@/lib/payments/db-rows";
 import { getDefaultPaymentsDeps, type PaymentsDeps } from "@/lib/payments/deps";
-import { processPaymentObjectWith, type ProcessResult } from "@/lib/payments/process";
+import { resumeOpenDuplicateRefunds } from "@/lib/payments/duplicates";
+import { processPaymentObjectWith } from "@/lib/payments/process";
+import type { DuplicateRefundOutcome, ProcessResult } from "@/lib/payments/process-types";
 
-// Сверка платежей, если webhook не дошёл (Чертёж 5.9.1 «Fallback», Edge Case 4, 5.12 шаг 4).
-//  - reconcileOrderPayments(orderId) — для GET /api/orders/[number] (День 5): заказ в pending_payment (или cancelled —
-//    перед чтением страница вызывает cancel_expired_orders, а оплата после истечения брони принимается, Edge Case 43),
-//    платежи status='pending', последняя проверка (payments.updated_at) старше 60 с → GET /v3/payments/{id} →
-//    processPaymentObject (тот же путь, что webhook). Каждая проверка обновляет строку payments → updated_at сдвигается.
-//  - reconcileStalePayments() — для cron (День 7): все payments.status='pending' младше 48 ч.
+// Сверка платежей, если webhook не дошёл или обработка оборвалась (Чертёж 5.9.1 «Fallback», Edge Case 4, 5.12 шаг 4).
+//  - reconcileOrderPayments(orderId) — для GET /api/orders/[number] (День 5): заказ в pending_payment или cancelled
+//    (страница перед чтением вызывает cancel_expired_orders, а оплата после истечения брони принимается, Edge Case 43);
+//    платежи pending И succeeded (succeeded у неоплаченного заказа — сбой между mark_order_paid и уведомлениями/строкой),
+//    последняя проверка (payments.updated_at) старше 60 с → GET /v3/payments/{id} → processPaymentObject.
+//    Каждая проверка обновляет строку payments → updated_at сдвигается (не чаще раза в 60 с).
+//  - reconcileStalePayments() — для cron (День 7): все pending младше 48 ч + все succeeded у неоплаченных заказов
+//    + незавершённые автоматические возвраты повторной оплаты (сироты, один автоповтор после сети/5xx).
 // Ни одна функция не бросает: страница заказа и cron не должны падать из-за ЮKassa/БД; ошибки — в лог и в итог.
 
 export const RECONCILE_MIN_INTERVAL_SECONDS = 60;
 export const RECONCILE_MAX_AGE_HOURS = 48;
-const RECONCILABLE_ORDER_STATUSES = new Set(["pending_payment", "cancelled"]);
+const UNPAID = new Set<string>(UNPAID_ORDER_STATUSES);
 
 export type ReconcileItem =
   | { payment_id: string; ok: true; result: ProcessResult }
@@ -24,6 +28,8 @@ export interface ReconcileSummary {
   paid: number;
   failed: number;
   items: ReconcileItem[];
+  /** Только cron: продолженные автоматические возвраты повторной оплаты. */
+  refunds?: DuplicateRefundOutcome[];
 }
 
 async function reconcileOne(deps: PaymentsDeps, p: PaymentRow): Promise<ReconcileItem> {
@@ -52,10 +58,11 @@ const EMPTY: ReconcileSummary = { checked: 0, paid: 0, failed: 0, items: [] };
 export async function reconcileOrderPaymentsWith(deps: PaymentsDeps, orderId: string): Promise<ReconcileSummary> {
   try {
     const order = await deps.repo.getOrder(orderId);
-    if (!order || !RECONCILABLE_ORDER_STATUSES.has(order.status)) return EMPTY;
+    if (!order || !UNPAID.has(order.status)) return EMPTY;
     const nowMs = deps.now().getTime();
     const due = (await deps.repo.listOrderPayments(orderId)).filter(
-      (p) => p.status === "pending" && nowMs - Date.parse(p.updated_at) > RECONCILE_MIN_INTERVAL_SECONDS * 1000,
+      (p) => (p.status === "pending" || p.status === "succeeded")
+        && nowMs - Date.parse(p.updated_at) > RECONCILE_MIN_INTERVAL_SECONDS * 1000,
     );
     return await runAll(deps, due);
   } catch (err) {
@@ -65,13 +72,24 @@ export async function reconcileOrderPaymentsWith(deps: PaymentsDeps, orderId: st
 }
 
 export async function reconcileStalePaymentsWith(deps: PaymentsDeps): Promise<ReconcileSummary> {
+  const since = new Date(deps.now().getTime() - RECONCILE_MAX_AGE_HOURS * 3600 * 1000).toISOString();
+  let summary: ReconcileSummary;
   try {
-    const since = new Date(deps.now().getTime() - RECONCILE_MAX_AGE_HOURS * 3600 * 1000).toISOString();
-    return await runAll(deps, await deps.repo.listPendingPaymentsSince(since));
+    const pending = await deps.repo.listPendingPaymentsSince(since);
+    const succeeded = await deps.repo.listSucceededPaymentsOfUnpaidOrders();
+    const seen = new Set<string>();
+    summary = await runAll(deps, [...pending, ...succeeded].filter((p) => !seen.has(p.id) && seen.add(p.id)));
   } catch (err) {
     console.error({ scope: "payments.reconcileStale", err });
-    return { ...EMPTY, failed: 1 };
+    summary = { ...EMPTY, failed: 1 };
   }
+  try {
+    summary.refunds = await resumeOpenDuplicateRefunds(deps, since);
+  } catch (err) {
+    console.error({ scope: "payments.reconcileStale.refunds", err });
+    summary.failed += 1;
+  }
+  return summary;
 }
 
 export async function reconcileOrderPayments(orderId: string): Promise<ReconcileSummary> {

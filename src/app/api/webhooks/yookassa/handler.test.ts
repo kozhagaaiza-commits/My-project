@@ -87,6 +87,20 @@ describe("POST /api/webhooks/yookassa: повторный GET объекта и 
     assert.deepEqual(calls, [`getRefund:${REFUND.id}`, `processRefund:${REFUND.id}`]);
   });
 
+  it("автовозврат повторной оплаты ждёт повтора после сбоя сети → 500, чтобы ЮKassa доставила снова", async () => {
+    mock.method(console, "error", () => {});
+    const { POST } = setup({
+      processPayment: async () => ({ kind: "refunded_duplicate", orderId: ORDER_ID, refunds: [{ payment_id: PAY_ID, refund_id: "r1", status: "retry_scheduled" }] }),
+    });
+    const res = await POST(req(notification()));
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { error: { code: "INTERNAL_ERROR", message: "Ошибка обработки уведомления" } });
+    const ok = await setup({
+      processPayment: async () => ({ kind: "refunded_duplicate", orderId: ORDER_ID, refunds: [{ payment_id: PAY_ID, refund_id: "r1", status: "failed" }] }),
+    }).POST(req(notification()));
+    assert.equal(ok.status, 200, "4xx возврата — только вручную, повтор уведомления не нужен");
+  });
+
   it("ошибка ЮKassa или БД → 500 «Ошибка обработки уведомления» без деталей (ЮKassa повторит)", async () => {
     const log = mock.method(console, "error", () => {});
     for (const over of [
@@ -137,11 +151,23 @@ describe("POST /api/webhooks/yookassa: с fake-ЮKassa и in-memory БД", () =>
     assert.equal(repo.paymentRaw(created.paymentId)?.status, "pending");
   });
 
-  it("уведомление о чужом/несуществующем платеже: ЮKassa отвечает 404 → 500, заказ не трогается", async () => {
+  it("уведомление о чужом/несуществующем платеже: ЮKassa отвечает 404 → 200 (повтор бесполезен), заказ не трогается", async () => {
+    const log = mock.method(console, "error", () => {});
+    const { POST } = realHandler();
+    const res = await POST(req(notification("payment.succeeded", PAY_ID)));
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { data: { received: true } });
+    assert.deepEqual(repo.markPaidCalls, []);
+    const entry = log.mock.calls[0].arguments[0] as { scope: string; object_id: string };
+    assert.deepEqual([entry.scope, entry.object_id], ["webhooks.yookassa", PAY_ID]);
+  });
+
+  it("refund.succeeded по несуществующему возврату (404) → 200; 401 ЮKassa (ключи) → 500", async () => {
     mock.method(console, "error", () => {});
     const { POST } = realHandler();
+    assert.equal((await POST(req(notification("refund.succeeded", "2ec4b1f0-0015-5000-8000-1d7e2a9c4b36")))).status, 200);
+    fake.intercept(() => ({ status: 401, json: { type: "error", code: "invalid_credentials", description: "Login or password is incorrect" } }));
     assert.equal((await POST(req(notification("payment.succeeded", PAY_ID)))).status, 500);
-    assert.deepEqual(repo.markPaidCalls, []);
   });
 
   it("дубликат уведомления → 200 оба раза, уведомления об оплате — один раз", async () => {

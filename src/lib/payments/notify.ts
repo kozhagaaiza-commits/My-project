@@ -1,11 +1,11 @@
 import { formatRub } from "@/lib/money";
-import type { NotificationInput } from "@/lib/notifications/types";
+import type { AdminAttentionPayload, NotificationInput } from "@/lib/notifications/types";
 import type { OrderForPayment, OrderItemRow } from "@/lib/payments/db";
 import type { PaymentsDeps } from "@/lib/payments/deps";
 
 // Уведомления платёжного контура (5.9.2): только постановка в очередь. Получатели: админ — Telegram
 // (TELEGRAM_ADMIN_CHAT_ID), покупатель — email заказа. Telegram покупателя (orders.telegram_chat_id) в Дне 4 не читается.
-// Ни одна функция не бросает: сбой уведомления не должен ломать обработку платежа.
+// Ни одна функция не бросает: сбой уведомления не должен ломать обработку платежа; результат — true, если всё поставлено.
 
 type NotifyDeps = Pick<PaymentsDeps, "enqueue" | "siteUrl" | "adminChatId" | "orderUrl">;
 
@@ -26,29 +26,31 @@ export const vehicleShortLabel = (v: OrderForPayment["vehicle"]) => (v ? `${v.ma
 
 export const adminOrderUrl = (siteUrl: string, orderId: string) => `${siteUrl.replace(/\/$/, "")}/admin/orders/${orderId}`;
 
-async function safeEnqueue(deps: NotifyDeps, build: () => NotificationInput[]): Promise<number> {
+/** true — все уведомления поставлены в очередь; false — сборка или хотя бы одна постановка не удалась (ошибка в логе). */
+async function safeEnqueue(deps: NotifyDeps, build: () => NotificationInput[]): Promise<boolean> {
   let list: NotificationInput[];
   try {
     list = build();
   } catch (err) {
     console.error({ scope: "payments.notify", msg: "не удалось собрать уведомление", err });
-    return 0;
+    return false;
   }
-  let ok = 0;
+  let all = true;
   for (const n of list) {
     try {
-      if (await deps.enqueue(n)) ok += 1;
+      if (!(await deps.enqueue(n))) all = false;
     } catch (err) {
+      all = false;
       console.error({ scope: "payments.notify", template: n.template, err });
     }
   }
-  return ok;
+  return all;
 }
 
 /** mark_order_paid → paid / paid_needs_attention: admin_order_paid + customer_order_paid (+ admin_attention). */
 export function notifyOrderPaid(
   deps: NotifyDeps, order: OrderForPayment, items: OrderItemRow[], attentionReason: string | null,
-): Promise<number> {
+): Promise<boolean> {
   return safeEnqueue(deps, () => {
     const adminUrl = adminOrderUrl(deps.siteUrl, order.id);
     const totalFormatted = formatRub(order.total);
@@ -96,14 +98,13 @@ export function notifyPaymentCreateFailed(deps: NotifyDeps, order: Pick<OrderFor
   }]);
 }
 
-/** Edge Case 36: повторная оплата → admin_attention с итогом автоматического возврата. */
-export function notifyDuplicatePayment(deps: NotifyDeps, order: Pick<OrderForPayment, "id" | "number">, reason: string) {
+/** admin_attention произвольного вида (Edge Case 36 — duplicate_payment; не-RUB платёж — payment_currency_mismatch). */
+export function notifyAdminAttention(
+  deps: NotifyDeps, order: Pick<OrderForPayment, "id" | "number">, kind: AdminAttentionPayload["kind"], reason: string,
+) {
   return safeEnqueue(deps, () => [{
     channel: "telegram", recipient: deps.adminChatId, template: "admin_attention",
-    payload: {
-      order_id: order.id, order_number: order.number, kind: "duplicate_payment", reason,
-      admin_url: adminOrderUrl(deps.siteUrl, order.id),
-    },
+    payload: { order_id: order.id, order_number: order.number, kind, reason, admin_url: adminOrderUrl(deps.siteUrl, order.id) },
   }]);
 }
 

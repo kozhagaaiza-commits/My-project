@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import {
-  ORDER_FOR_PAYMENT_COLUMNS, PAYMENT_COLUMNS, appendAttention, createPaymentsRepo, type Db,
+  ORDER_FOR_PAYMENT_COLUMNS, PAYMENT_COLUMNS, REFUND_COLUMNS, appendAttention, createPaymentsRepo, type Db,
 } from "@/lib/payments/db";
 
 // Запросы PostgREST платёжного контура на записывающем мок-клиенте: колонки, фильтры, RPC и разбор ответов.
@@ -78,10 +78,15 @@ describe("payments/db: явные колонки, без служебных по
   });
 
   it("refunds: insert pending, условный перевод в succeeded (neq succeeded)", async () => {
-    const refund = { id: "r1", order_id: "o1", payment_id: "p1", yookassa_refund_id: null, amount: 100, status: "pending", reason: "Повторная оплата" };
+    const refund = { id: "r1", order_id: "o1", payment_id: "p1", yookassa_refund_id: null, amount: 100, status: "pending", reason: "Повторная оплата", error_message: null, created_at: "2026-10-01T12:30:00.123456+00:00" };
     const ins = recorder([{ data: refund, error: null }]);
-    await ins.repo.insertRefund({ order_id: "o1", payment_id: "p1", amount: 100, reason: "Повторная оплата", restock: false });
-    assert.deepEqual(ins.calls[1], ["insert", { order_id: "o1", payment_id: "p1", amount: 100, reason: "Повторная оплата", restock: false, status: "pending" }]);
+    const newRefund = { order_id: "o1", payment_id: "p1", amount: 100, reason: "Повторная оплата", restock: false };
+    assert.deepEqual(await ins.repo.insertRefund(newRefund), { row: refund });
+    assert.deepEqual(ins.calls[1], ["insert", { ...newRefund, status: "pending" }]);
+    assert.deepEqual(ins.calls[2], ["select", REFUND_COLUMNS]);
+    // Индекс uq_refunds_duplicate_payment (если применён): 23505 → conflict, не исключение.
+    assert.deepEqual(await recorder([{ data: null, error: { code: "23505", message: "uq_refunds_duplicate_payment" } }]).repo.insertRefund(newRefund), { conflict: true });
+    await assert.rejects(recorder([{ data: null, error: { code: "23514", message: "check" } }]).repo.insertRefund(newRefund), /refunds\.insert: 23514/);
 
     const flip = recorder([{ data: [{ id: "r1" }], error: null }, { data: [], error: null }]);
     assert.equal(await flip.repo.markRefundSucceeded("r1", "ykr1"), true);
@@ -99,6 +104,17 @@ describe("payments/db: явные колонки, без служебных по
     const { calls, repo } = recorder([{ data: [], error: null }]);
     await repo.listPendingPaymentsSince("2026-09-29T12:00:00.000Z");
     assert.deepEqual(calls, [["from", "payments"], ["select", PAYMENT_COLUMNS], ["eq", "status", "pending"], ["gte", "created_at", "2026-09-29T12:00:00.000Z"], ["order", "created_at", { ascending: true }]]);
+  });
+
+  it("сверка: succeeded-платежи неоплаченных заказов (inner join) и незавершённые автовозвраты", async () => {
+    const a = recorder([{ data: [{ ...PAYMENT_ROW, status: "succeeded", orders: { status: "pending_payment" } }], error: null }]);
+    assert.equal((await a.repo.listSucceededPaymentsOfUnpaidOrders())[0].status, "succeeded");
+    assert.deepEqual(a.calls, [["from", "payments"], ["select", `${PAYMENT_COLUMNS},orders!inner(status)`], ["eq", "status", "succeeded"],
+      ["in", "orders.status", ["pending_payment", "cancelled"]], ["order", "created_at", { ascending: true }]]);
+    const b = recorder([{ data: [], error: null }]);
+    await b.repo.listOpenRefundsByReason("Повторная оплата", "2026-09-29T12:00:00.000Z");
+    assert.deepEqual(b.calls, [["from", "refunds"], ["select", REFUND_COLUMNS], ["eq", "reason", "Повторная оплата"], ["in", "status", ["pending", "failed"]],
+      ["gte", "created_at", "2026-09-29T12:00:00.000Z"], ["order", "created_at", { ascending: true }]]);
   });
 
   it("ответ неверной формы → исключение Zod", async () => {

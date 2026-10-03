@@ -102,7 +102,7 @@ describe("сквозной сценарий: заказ → платёж → web
     assert.equal(fake.refunds.size, 1);
     assert.equal([...fake.refunds.values()][0].payment_id, b.paymentId);
     assert.equal(repo.orders.get(ORDER_ID)?.needs_attention, true);
-    assert.deepEqual(notifications.map((n) => n.template), ["admin_order_paid", "customer_order_paid", "customer_refund", "admin_attention"]);
+    assert.deepEqual(notifications.map((n) => n.template), ["admin_order_paid", "customer_order_paid", "admin_attention", "customer_refund"]);
 
     // refund.succeeded от ЮKassa для уже succeeded возврата — ничего не меняет.
     const rid = String([...fake.refunds.values()][0].id);

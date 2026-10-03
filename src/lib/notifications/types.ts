@@ -45,12 +45,13 @@ export interface CustomerOrderPaidPayload {
  * ⚠️ Заказ FC-26-000123 требует внимания: <reason>.
  * kind: payment_create_failed — текст «Ошибка создания платежа FC-26-000123: <reason>» (Edge Case 39);
  * paid_needs_attention — причина из orders.attention_reason (Edge Cases 11, 15, 43);
- * duplicate_payment — повторная оплата и автоматический возврат (Edge Case 36).
+ * duplicate_payment — повторная оплата и автоматический возврат (Edge Case 36);
+ * payment_currency_mismatch — succeeded-платёж не в RUB: сумма не учтена, mark_order_paid не вызывался;
  */
 export interface AdminAttentionPayload {
   order_id: string;
   order_number: string;
-  kind: "payment_create_failed" | "paid_needs_attention" | "duplicate_payment";
+  kind: "payment_create_failed" | "paid_needs_attention" | "duplicate_payment" | "payment_currency_mismatch";
   reason: string;
   admin_url: string;
 }

@@ -28,6 +28,11 @@ export type CreatePaymentResult =
 
 export interface CreatePaymentOptions {
   reuseWithinSeconds?: number;
+  /**
+   * Общий бюджет создания платежа в мс (POST /api/orders и /pay передают 25 000): отсчитывается от начала вызова,
+   * после него новые попытки к ЮKassa не начинаются → provider_unavailable. Не задан — без ограничения (3 попытки по 15 с).
+   */
+  deadlineMs?: number;
 }
 
 export class PaymentOrderError extends Error {
@@ -55,6 +60,7 @@ export async function createPaymentForOrderWith(
   deps: PaymentsDeps, orderId: string, opts: CreatePaymentOptions = {},
 ): Promise<CreatePaymentResult> {
   const { repo, yookassa } = deps;
+  const startedAt = Date.now();
   const now = deps.now();
   const order = await repo.getOrder(orderId);
   if (!order) throw new PaymentOrderError("ORDER_NOT_FOUND");
@@ -89,7 +95,7 @@ export async function createPaymentForOrderWith(
       items: toReceiptItems(items),
       returnUrl: `${deps.orderUrl(order.number, order.client_request_id)}&from=payment`,
       attempt,
-    });
+    }, opts.deadlineMs === undefined ? {} : { deadlineMs: Math.max(0, opts.deadlineMs - (Date.now() - startedAt)) });
   } catch (err) {
     if (err instanceof YookassaApiError) {
       const description = err.yookassa.description ?? `HTTP ${err.status}`;

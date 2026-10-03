@@ -26,5 +26,5 @@ export function logPaymentFailure(scope: string, orderId: string, p: { kind: str
  */
 export const PAYMENT_DEADLINE_MS = 25_000;
 
-/** deadlineMs — необязательное поле опций платежа (payments-specialist); пересечение совместимо и без него. */
-export type OrderPaymentOptions = CreatePaymentOptions & { deadlineMs?: number };
+/** Опции платежа из контракта payments (reuseWithinSeconds, deadlineMs). */
+export type OrderPaymentOptions = Required<Pick<CreatePaymentOptions, "reuseWithinSeconds" | "deadlineMs">>;

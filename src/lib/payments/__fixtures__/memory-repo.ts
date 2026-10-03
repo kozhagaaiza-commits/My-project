@@ -22,7 +22,7 @@ export type MemOrder = OrderForPayment & {
 type MemPayment = Omit<PaymentRow, "confirmation_url" | "captured_at"> & {
   idempotence_key: string; payment_method_type: string | null; cancellation_reason: string | null; raw: unknown;
 };
-type MemRefund = RefundRow & { restock: boolean; error_message: string | null };
+type MemRefund = RefundRow & { restock: boolean };
 
 const pick = (raw: unknown, ...path: string[]): string | null => {
   let cur: unknown = raw;
@@ -37,6 +37,9 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
   readonly refunds: MemRefund[] = [];
   readonly history: Array<{ order_id: string; from: string; to: string; note: string }> = [];
   readonly markPaidCalls: Array<{ orderId: string; amount: number }> = [];
+  /** Имитация миграции uq_refunds_duplicate_payment: unique (payment_id) where reason = 'Повторная оплата'. */
+  duplicateRefundIndex = false;
+  private refundSeq = 0;
   /** Имя метода → ошибка, которую он бросит один раз (имитация сбоя БД). */
   readonly failOnce = new Map<keyof PaymentsRepo, Error>();
 
@@ -55,7 +58,10 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
     };
   }
   private refundView(r: MemRefund): RefundRow {
-    return { id: r.id, order_id: r.order_id, payment_id: r.payment_id, yookassa_refund_id: r.yookassa_refund_id, amount: r.amount, status: r.status, reason: r.reason };
+    return {
+      id: r.id, order_id: r.order_id, payment_id: r.payment_id, yookassa_refund_id: r.yookassa_refund_id, amount: r.amount,
+      status: r.status, reason: r.reason, error_message: r.error_message, created_at: r.created_at,
+    };
   }
 
   addOrder(o: MemOrder, items: OrderItemRow[]) {
@@ -128,9 +134,15 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
   async listOrderRefunds(orderId: string) { return this.refunds.filter((r) => r.order_id === orderId).map((r) => this.refundView(r)); }
   async insertRefund(row: NewRefund) {
     this.maybeFail("insertRefund");
-    const r: MemRefund = { id: randomUUID(), yookassa_refund_id: null, status: "pending", error_message: null, ...row };
+    if (this.duplicateRefundIndex && row.reason === "Повторная оплата"
+      && this.refunds.some((x) => x.payment_id === row.payment_id && x.reason === "Повторная оплата")) {
+      return { conflict: true as const };
+    }
+    // created_at строго растёт (как now() разных транзакций): микросекунды = порядковый номер вставки.
+    const created_at = this.iso().replace("Z", `${String(++this.refundSeq).padStart(3, "0")}+00:00`);
+    const r: MemRefund = { id: randomUUID(), yookassa_refund_id: null, status: "pending", error_message: null, created_at, ...row };
     this.refunds.push(r);
-    return this.refundView(r);
+    return { row: this.refundView(r) };
   }
   async updateRefund(id: string, patch: RefundPatch) {
     this.maybeFail("updateRefund");
@@ -152,6 +164,19 @@ export class MemoryPaymentsRepo implements PaymentsRepo {
   async listPendingPaymentsSince(sinceIso: string) {
     this.maybeFail("listPendingPaymentsSince");
     return this.payments.filter((p) => p.status === "pending" && p.created_at >= sinceIso).map((p) => this.view(p));
+  }
+  async findPaymentById(id: string) {
+    const p = this.payments.find((x) => x.id === id);
+    return p ? this.view(p) : null;
+  }
+  async listSucceededPaymentsOfUnpaidOrders() {
+    this.maybeFail("listSucceededPaymentsOfUnpaidOrders");
+    return this.payments.filter((p) => p.status === "succeeded" && ["pending_payment", "cancelled"].includes(this.orders.get(p.order_id)?.status ?? ""))
+      .map((p) => this.view(p));
+  }
+  async listOpenRefundsByReason(reason: string, sinceIso: string) {
+    return this.refunds.filter((r) => r.reason === reason && (r.status === "pending" || r.status === "failed") && r.created_at >= sinceIso)
+      .map((r) => this.refundView(r));
   }
 }
 

@@ -5,7 +5,7 @@ import {
   ADMIN_CHAT, MemoryPaymentsRepo, ORDER_ID, SITE, WHEEL_TITLE, fakeClient, makeDeps, sampleItems, sampleOrder, testOrderUrl,
 } from "@/lib/payments/__fixtures__/memory-repo";
 import { createPaymentForOrderWith } from "@/lib/payments/create";
-import { pickPrimaryPayment, processPaymentObjectWith, processRefundObjectWith } from "@/lib/payments/process";
+import { processPaymentObjectWith, processRefundObjectWith } from "@/lib/payments/process";
 import type { PaymentsDeps } from "@/lib/payments/deps";
 import type { NotificationInput } from "@/lib/notifications/types";
 import type { YookassaClient } from "@/lib/yookassa";
@@ -108,24 +108,74 @@ describe("processPaymentObject: succeeded → mark_order_paid → уведомл
     assert.match(attention.payload.reason, /Оплачен после истечения брони/);
   });
 
-  it("ошибка БД в mark_order_paid пробрасывается (webhook → 500, ЮKassa повторит), уведомлений нет", async () => {
+  it("порядок: сбой mark_order_paid → строка payments остаётся pending, уведомлений нет; повтор webhook доводит до paid", async () => {
     const id = await newPayment();
     repo.failOnce.set("markOrderPaid", new Error("rpc.mark_order_paid: 57014 timeout"));
     const p = await payAndFetch(id);
     await assert.rejects(processPaymentObjectWith(deps, p), /mark_order_paid/);
     assert.deepEqual(notes, []);
-    // Повтор: строка payments уже succeeded — rpc всё равно вызывается, заказ оплачивается.
+    assert.equal(repo.paymentRaw(id)?.status, "pending", "succeeded ставится только после mark_order_paid");
+    assert.equal(repo.orders.get(ORDER_ID)?.status, "pending_payment");
     assert.equal((await processPaymentObjectWith(deps, p)).kind, "paid");
+    assert.equal(repo.paymentRaw(id)?.status, "succeeded");
     assert.deepEqual(templates(), ["admin_order_paid", "customer_order_paid"]);
   });
 
-  it("сбой чтения заказа для уведомлений после оплаты не даёт 500", async () => {
+  it("сбой перевода payments в succeeded после оплаты: уведомления уже поставлены, повтор не дублирует их", async () => {
+    const id = await newPayment();
+    const p = await payAndFetch(id);
+    repo.failOnce.set("updatePayment", new Error("payments.update: 08006"));
+    await assert.rejects(processPaymentObjectWith(deps, p), /payments\.update/);
+    assert.equal(repo.orders.get(ORDER_ID)?.status, "paid");
+    assert.deepEqual(templates(), ["admin_order_paid", "customer_order_paid"]);
+    assert.deepEqual(await processPaymentObjectWith(deps, p), { kind: "already_paid", orderId: ORDER_ID });
+    assert.equal(repo.paymentRaw(id)?.status, "succeeded");
+    assert.equal(notes.length, 2);
+  });
+
+  it("сбой чтения заказа для уведомлений после оплаты: не 500, needs_attention «Уведомление об оплате не поставлено в очередь»", async () => {
     mock.method(console, "error", () => {});
     const id = await newPayment();
     const p = await payAndFetch(id);
     repo.failOnce.set("getOrderItems", new Error("db down"));
     assert.equal((await processPaymentObjectWith(deps, p)).kind, "paid");
     assert.deepEqual(notes, []);
+    assert.equal(repo.orders.get(ORDER_ID)?.needs_attention, true);
+    assert.equal(repo.orders.get(ORDER_ID)?.attention_reason, "Уведомление об оплате не поставлено в очередь");
+  });
+
+  it("enqueue вернул false или бросил → needs_attention; повтор webhook — already_paid без уведомлений", async () => {
+    mock.method(console, "error", () => {});
+    for (const enqueue of [async () => false, async () => { throw new Error("queue down"); }]) {
+      fake.reset();
+      setup();
+      const id = await newPayment();
+      const p = await payAndFetch(id);
+      const d = { ...deps, enqueue };
+      assert.equal((await processPaymentObjectWith(d, p)).kind, "paid");
+      const o = repo.orders.get(ORDER_ID);
+      assert.equal(o?.needs_attention, true);
+      assert.match(o?.attention_reason ?? "", /Уведомление об оплате не поставлено в очередь/);
+      assert.deepEqual(await processPaymentObjectWith(deps, p), { kind: "already_paid", orderId: ORDER_ID });
+      assert.deepEqual(notes, []);
+    }
+  });
+
+  it("валюта не RUB → mark_order_paid НЕ вызывается, needs_attention + admin_attention один раз", async () => {
+    mock.method(console, "error", () => {});
+    const id = await newPayment();
+    const p = await payAndFetch(id, { amount: { value: "1500.00", currency: "USD" } });
+    assert.deepEqual(await processPaymentObjectWith(deps, p), { kind: "currency_mismatch", orderId: ORDER_ID, currency: "USD" });
+    assert.deepEqual(repo.markPaidCalls, []);
+    const o = repo.orders.get(ORDER_ID);
+    assert.equal(o?.status, "pending_payment");
+    assert.equal(o?.needs_attention, true);
+    assert.match(o?.attention_reason ?? "", new RegExp(`Платёж ${id} в валюте USD`));
+    assert.deepEqual(templates(), ["admin_attention"]);
+    assert.ok(notes[0].template === "admin_attention" && notes[0].payload.kind === "payment_currency_mismatch");
+    await processPaymentObjectWith(deps, p); // повтор: без новых уведомлений
+    assert.equal(notes.length, 1);
+    assert.deepEqual(repo.markPaidCalls, []);
   });
 });
 
@@ -187,122 +237,14 @@ describe("processPaymentObject: строки payments нет", () => {
   });
 });
 
-describe("processPaymentObject: двойная оплата (Edge Case 36)", () => {
-  async function twoPaid() {
-    const a = await newPayment();
-    now = new Date(T0.getTime() + 60_000);
-    const b = await newPayment(); // вторая вкладка: attempt 2
-    const pa = await payAndFetch(a, { captured_at: "2026-10-01T12:34:09.553Z" });
-    const pb = await payAndFetch(b, { captured_at: "2026-10-01T12:35:00.000Z" });
-    return { a, b, pa, pb };
-  }
-
-  it("второй succeeded → полный автоматический возврат ЭТОГО платежа, needs_attention, admin_attention + customer_refund", async () => {
-    const { b, pa, pb } = await twoPaid();
-    assert.equal((await processPaymentObjectWith(deps, pa)).kind, "paid");
-    notes.length = 0;
-    fake.requests.length = 0;
-
-    const res = await processPaymentObjectWith(deps, pb);
-    assert.equal(res.kind, "refunded_duplicate");
-    assert.equal(repo.refunds.length, 1);
-    const refund = repo.refunds[0];
-    assert.equal(refund.payment_id, repo.paymentRaw(b)?.id);
-    assert.equal(refund.amount, 13370000);
-    assert.equal(refund.reason, "Повторная оплата");
-    assert.equal(refund.restock, false);
-    assert.equal(refund.status, "succeeded");
-    assert.ok(refund.yookassa_refund_id);
-    assert.deepEqual(res.kind === "refunded_duplicate" && res.refunds, [{ payment_id: b, refund_id: refund.id, status: "succeeded" }]);
-
-    const post = fake.requests.find((r) => r.method === "POST" && r.path === "/v3/refunds");
-    assert.equal(post?.headers["idempotence-key"], `refund_${refund.id}`);
-    const body = post?.body as { payment_id: string; amount: { value: string }; description: string; receipt: { customer: { phone: string }; items: Array<{ description: string; quantity: number; amount: { value: string } }> } };
-    assert.equal(body.payment_id, b);
-    assert.equal(body.amount.value, "133700.00");
-    assert.equal(body.description, "Возврат по заказу FC-26-000123");
-    assert.equal(body.receipt.customer.phone, "79165551234");
-    assert.deepEqual(body.receipt.items.map((i) => [i.description, i.quantity, i.amount.value]), [[WHEEL_TITLE, 1, "133700.00"]]);
-
-    const order = repo.orders.get(ORDER_ID);
-    assert.equal(order?.status, "paid");
-    assert.equal(order?.needs_attention, true);
-    assert.match(order?.attention_reason ?? "", /Повторная оплата: платёж .+, автоматический возврат 133\s700\s₽/);
-    assert.deepEqual(templates(), ["customer_refund", "admin_attention"]);
-    const attention = notes[1];
-    assert.ok(attention.template === "admin_attention");
-    assert.equal(attention.payload.kind, "duplicate_payment");
-    assert.match(attention.payload.reason, /оформлен автоматический возврат/);
-    assert.equal(repo.markPaidCalls.length, 2, "второй платёж тоже прошёл через mark_order_paid (already_paid)");
-  });
-
-  it("идемпотентность: повтор второго и повторная доставка ПЕРВОГО не создают возвратов и уведомлений", async () => {
-    const { pa, pb } = await twoPaid();
-    await processPaymentObjectWith(deps, pa);
-    await processPaymentObjectWith(deps, pb);
-    const before = notes.length;
-    assert.deepEqual(await processPaymentObjectWith(deps, pb), { kind: "already_paid", orderId: ORDER_ID });
-    assert.deepEqual(await processPaymentObjectWith(deps, pa), { kind: "already_paid", orderId: ORDER_ID });
-    assert.equal(repo.refunds.length, 1);
-    assert.equal(notes.length, before);
-    assert.equal(fake.refunds.size, 1);
-  });
-
-  it("основной платёж — ранний по captured_at, даже если его уведомление пришло вторым", async () => {
-    const { a, pa, pb } = await twoPaid();
-    await processPaymentObjectWith(deps, pb); // B оплатил заказ первым по времени обработки
-    const res = await processPaymentObjectWith(deps, pa); // A захвачен раньше → основной, возвращается B
-    assert.equal(res.kind, "refunded_duplicate");
-    assert.notEqual(res.kind === "refunded_duplicate" && res.refunds[0].payment_id, a);
-    assert.equal(repo.refunds.length, 1);
-  });
-
-  it("ЮKassa отклонила возврат → refunds.failed + error_message, admin_attention «не прошёл», заказ остаётся paid", async () => {
-    mock.method(console, "error", () => {});
-    const { pa, pb } = await twoPaid();
-    await processPaymentObjectWith(deps, pa);
-    notes.length = 0;
-    fake.intercept((r) => (r.path === "/v3/refunds" ? { status: 400, json: { type: "error", code: "invalid_request", description: "Not enough money on the balance" } } : undefined));
-    const res = await processPaymentObjectWith(deps, pb);
-    assert.equal(res.kind === "refunded_duplicate" && res.refunds[0].status, "failed");
-    assert.equal(repo.refunds[0].status, "failed");
-    assert.equal(repo.refunds[0].error_message, "Not enough money on the balance");
-    assert.deepEqual(templates(), ["admin_attention"]);
-    assert.ok(notes[0].template === "admin_attention");
-    assert.match(notes[0].payload.reason, /не прошёл \(Not enough money on the balance\)\. Верните вручную/);
-    assert.equal(repo.orders.get(ORDER_ID)?.status, "paid");
-    // Повторная доставка не повторяет возврат автоматически: админ решает вручную.
-    assert.equal((await processPaymentObjectWith(deps, pb)).kind, "already_paid");
-    assert.equal(repo.refunds.length, 1);
-  });
-
-  it("возврат в статусе pending → refund.succeeded позже переводит его и шлёт customer_refund один раз", async () => {
-    fake.refundStatus = "pending";
-    const { pa, pb } = await twoPaid();
-    await processPaymentObjectWith(deps, pa);
-    notes.length = 0;
-    await processPaymentObjectWith(deps, pb);
-    assert.equal(repo.refunds[0].status, "pending");
-    assert.deepEqual(templates(), ["admin_attention"]);
-
-    const ykRefundId = repo.refunds[0].yookassa_refund_id ?? "";
-    const stored = fake.refunds.get(ykRefundId);
-    assert.ok(stored);
-    stored.status = "succeeded";
-    const r = await yk.getRefund(ykRefundId);
-    assert.deepEqual(await processRefundObjectWith(deps, r), { kind: "refund_succeeded", refundId: repo.refunds[0].id });
-    assert.equal(repo.refunds[0].status, "succeeded");
-    assert.deepEqual(await processRefundObjectWith(deps, r), { kind: "refund_already_succeeded", refundId: repo.refunds[0].id });
-    assert.deepEqual(templates(), ["admin_attention", "customer_refund"]);
-  });
-});
-
 describe("processRefundObject (refund.succeeded)", () => {
   it("строка без yookassa_refund_id (ответ POST /refunds не дошёл) находится по платежу и сумме", async () => {
     const id = await newPayment();
     await processPaymentObjectWith(deps, await payAndFetch(id));
     const pay = repo.paymentRaw(id);
-    const row = await repo.insertRefund({ order_id: ORDER_ID, payment_id: pay?.id ?? "", amount: 3340000, reason: "Брак одного диска", restock: false });
+    const ins = await repo.insertRefund({ order_id: ORDER_ID, payment_id: pay?.id ?? "", amount: 3340000, reason: "Брак одного диска", restock: false });
+    if (!("row" in ins) || !ins.row) throw new Error("insert");
+    const row = ins.row;
     await repo.updateRefund(row.id, { status: "failed", error_message: "YooKassa недоступна" });
     const r = await yk.createRefund({ refundId: row.id, paymentId: id, amount: 3340000, description: "x", receipt: { customer: { email: "a@b.ru", phone: "7" }, items: [] } });
     assert.equal((await processRefundObjectWith(deps, r)).kind, "refund_succeeded");
@@ -313,16 +255,5 @@ describe("processRefundObject (refund.succeeded)", () => {
     const refund = { id: "rf-unknown-000001", payment_id: "pay-x", status: "succeeded" as const, amount: { value: "10.00", currency: "RUB" }, created_at: T0.toISOString() };
     assert.deepEqual(await processRefundObjectWith(deps, refund), { kind: "refund_unknown" });
     assert.deepEqual(await processRefundObjectWith(deps, { ...refund, status: "canceled" }), { kind: "refund_not_succeeded", status: "canceled" });
-  });
-});
-
-describe("pickPrimaryPayment", () => {
-  const row = (id: string, captured_at: string | null, created_at: string) =>
-    ({ id, order_id: "o", yookassa_payment_id: id, status: "succeeded" as const, amount: 1, created_at, updated_at: created_at, confirmation_url: null, captured_at });
-  it("ранний captured_at, затем created_at, затем id; без captured_at — в конце", () => {
-    assert.equal(pickPrimaryPayment([row("b", "2026-10-01T12:00:02Z", "2026-10-01T11:00:00Z"), row("a", "2026-10-01T12:00:01Z", "2026-10-01T11:59:00Z")])?.id, "a");
-    assert.equal(pickPrimaryPayment([row("b", null, "2026-10-01T10:00:00Z"), row("a", "2026-10-01T12:00:00Z", "2026-10-01T11:00:00Z")])?.id, "a");
-    assert.equal(pickPrimaryPayment([row("b", null, "2026-10-01T10:00:00Z"), row("a", null, "2026-10-01T10:00:00Z")])?.id, "a");
-    assert.equal(pickPrimaryPayment([]), null);
   });
 });
