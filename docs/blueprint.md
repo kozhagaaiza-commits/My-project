@@ -1696,7 +1696,7 @@ export const phoneRu = z.string().trim()
   .pipe(z.string().regex(/^\+7\d{10}$/, "Телефон в формате +7 999 123-45-67"));
 export const email = z.string().trim().toLowerCase().max(254).pipe(z.email("Проверьте email"));
 export const make = z.enum(["Audi", "BMW", "Mercedes-Benz"]);
-export const kopecks = z.number().int().positive().max(100_000_000_00);
+export const kopecks = z.number().int().positive().max(2_147_483_647); // деньги в БД — integer (A32)
 ```
 
 ---
@@ -2198,6 +2198,17 @@ export const createOrderBody = z.object({
 **Ответ 409 (лимит количества):**
 ```json
 { "error": { "code": "QTY_LIMIT", "message": "Не больше 2 комплектов одного диска в заказе", "details": { "product_id": "8c1f4e2a-5b7d-4e3a-9f12-6a0d3c9b7e51" } } }
+```
+
+**Ответ 409 (повтор запроса с чужим `client_request_id`, A30):**
+```json
+{ "error": { "code": "CONFLICT", "message": "Повторите оформление заказа" } }
+```
+Существующий заказ с этим `client_request_id` возвращается (201 с той же ссылкой) только если email в теле совпадает с email заказа (и пользователь тот же, если заказ привязан к `user_id`). Иначе — этот ответ без деталей; клиент генерирует новый `client_request_id`.
+
+**Ответ 409 (повтор для отменённого заказа или заказа с истёкшей бронью):**
+```json
+{ "error": { "code": "ORDER_NOT_PAYABLE", "message": "Время на оплату истекло. Оформите заказ заново" } }
 ```
 
 **Ответ 410 (товар снят с продажи):**
@@ -4183,7 +4194,7 @@ export async function fetchCbrRates(): Promise<{ date: string; USD: number; CNY:
 | Эндпоинт | Лимит | Окно |
 |----------|-------|------|
 | `POST /api/orders` | 5 на IP | 600 с |
-| `POST /api/orders/[number]/pay` | 10 на заказ | 600 с |
+| `POST /api/orders/[number]/pay` | 10 на заказ и IP (`pay:<номер>:<ip>`) + общий потолок 100 на заказ (`pay:<номер>`) | 600 с |
 | `GET /api/orders/[number]` | 30 на IP | 60 с |
 | `POST /api/cart/validate` | 60 на IP | 60 с |
 | `GET /api/products`, `/api/vehicles/*` | 120 на IP | 60 с |

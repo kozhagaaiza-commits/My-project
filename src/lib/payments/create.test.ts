@@ -156,6 +156,34 @@ describe("createPaymentForOrder: ошибки ЮKassa (Edge Cases 2, 39)", () =>
   });
 });
 
+describe("createPaymentForOrder: общий бюджет deadlineMs", () => {
+  it("deadlineMs передаётся в клиент (остаток бюджета); без него — без ограничения", async () => {
+    const { deps } = setup();
+    const seen: Array<number | undefined> = [];
+    const spy = { ...deps.yookassa, createPayment: async (...a: Parameters<typeof deps.yookassa.createPayment>) => {
+      seen.push(a[1]?.deadlineMs);
+      return deps.yookassa.createPayment(...a);
+    } };
+    await createPaymentForOrderWith({ ...deps, yookassa: spy }, ORDER_ID, { deadlineMs: 25_000 });
+    await createPaymentForOrderWith({ ...deps, yookassa: spy }, ORDER_ID);
+    assert.ok(seen[0] !== undefined && seen[0] <= 25_000 && seen[0] > 24_000, String(seen[0]));
+    assert.equal(seen[1], undefined);
+  });
+
+  it("ЮKassa не отвечает: бюджет исчерпан → provider_unavailable, без ожидания полных 3 × 15 с", async () => {
+    mock.method(console, "error", () => {});
+    fake.intercept(() => "hang");
+    repo = new MemoryPaymentsRepo(() => T0);
+    repo.addOrder(sampleOrder({}, T0), sampleItems());
+    const { deps, notifications } = makeDeps(repo, fakeClient(fake, { timeoutMs: 15_000 }));
+    const started = Date.now();
+    const res = await createPaymentForOrderWith(deps, ORDER_ID, { deadlineMs: 200 });
+    assert.deepEqual(res, { ok: false, kind: "provider_unavailable", message: "Платёжный сервис временно недоступен" });
+    assert.ok(Date.now() - started < 3000);
+    assert.deepEqual(notifications, []);
+  });
+});
+
 describe("createPaymentForOrder: гонка вставки payments", () => {
   it("два параллельных вызова с одним attempt → один платёж ЮKassa, одна строка, оба ok с одной ссылкой", async () => {
     const { deps } = setup();

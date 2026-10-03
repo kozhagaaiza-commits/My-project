@@ -132,6 +132,78 @@ describe("yookassa: createPayment (5.9.1)", () => {
   });
 });
 
+describe("yookassa: 429 / 409 / retry_after", () => {
+  it("429 и 409 на POST повторяются с ТЕМ ЖЕ ключом; retry_after (мс) удлиняет паузу", async () => {
+    fake.interceptTimes(1, isCreate, { status: 429, json: { type: "error", code: "too_many_requests", retry_after: 2500 } });
+    fake.interceptTimes(1, isCreate, { status: 409, json: { type: "error", code: "invalid_request", description: "Idempotence key is being processed" } });
+    assert.equal((await client().createPayment(PARAMS)).status, "pending");
+    assert.equal(fake.requests.length, 3);
+    assert.deepEqual(new Set(fake.requests.map((r) => r.headers["idempotence-key"])), new Set([`order_${ORDER_ID}_2`]));
+    assert.deepEqual(sleeps, [2500, 3000]);
+  });
+
+  it("retry_after ограничен 10 с; 409 на GET не повторяется (это 4xx)", async () => {
+    fake.interceptTimes(1, isCreate, { status: 429, json: { type: "error", retry_after: 600000 } });
+    await client().createPayment(PARAMS);
+    assert.deepEqual(sleeps, [10000]);
+    fake.clearInterceptors(); fake.requests.length = 0;
+    fake.intercept(() => ({ status: 409, json: { type: "error", code: "conflict" } }));
+    await assert.rejects(client().getPayment("30a8d2c1-000f-5000-9000-1b6c4d2e8f10"), YookassaApiError);
+    assert.equal(fake.requests.length, 1);
+  });
+
+  it("3 × 429 → YookassaUnavailableError (не «отклонено»)", async () => {
+    fake.intercept(() => ({ status: 429, json: { type: "error", code: "too_many_requests" } }));
+    await assert.rejects(client().createPayment(PARAMS), YookassaUnavailableError);
+    assert.equal(fake.requests.length, 3);
+  });
+});
+
+describe("yookassa: общий дедлайн вызова (deadlineMs)", () => {
+  /** Мгновенные паузы, двигающие управляемые часы. */
+  function clocked(over: { timeoutMs?: number } = {}) {
+    let t = 0;
+    const log: number[] = [];
+    const c = createYookassaClient({
+      baseUrl: fake.url, shopId: FAKE_SHOP_ID, secretKey: FAKE_SECRET_KEY, clock: () => t,
+      sleep: async (ms) => { log.push(ms); t += ms; }, ...over,
+    });
+    return { c, log, tick: (ms: number) => { t += ms; } };
+  }
+
+  it("новая попытка, не укладывающаяся в бюджет, не начинается → YookassaUnavailableError", async () => {
+    fake.intercept((r) => (isCreate(r) ? { status: 500 } : undefined));
+    const { c, log } = clocked();
+    await assert.rejects(c.createPayment(PARAMS, { deadlineMs: 2000 }), YookassaUnavailableError);
+    assert.equal(fake.requests.length, 2, "0 с и 1 с; пауза 3 с вышла бы за 2 с");
+    assert.deepEqual(log, [1000]);
+  });
+
+  it("без дедлайна — все 3 попытки; дедлайн 0 — ни одного запроса", async () => {
+    fake.intercept(() => ({ status: 500 }));
+    await assert.rejects(clocked().c.createPayment(PARAMS), YookassaUnavailableError);
+    assert.equal(fake.requests.length, 3);
+    fake.requests.length = 0;
+    await assert.rejects(clocked().c.createPayment(PARAMS, { deadlineMs: 0 }), YookassaUnavailableError);
+    assert.equal(fake.requests.length, 0);
+  });
+
+  it("время ответа расходует бюджет: медленная первая попытка не оставляет места для второй", async () => {
+    const { c, tick } = clocked();
+    fake.intercept((r) => { if (isCreate(r)) { tick(24_500); return { status: 503 }; } return undefined; });
+    await assert.rejects(c.createPayment(PARAMS, { deadlineMs: 25_000 }), YookassaUnavailableError);
+    assert.equal(fake.requests.length, 1);
+  });
+
+  it("таймаут попытки урезается до остатка бюджета (реальное время)", async () => {
+    fake.intercept(() => "hang");
+    const started = Date.now();
+    await assert.rejects(client({ timeoutMs: 10_000 }).createPayment(PARAMS, { deadlineMs: 150 }), YookassaUnavailableError);
+    assert.ok(Date.now() - started < 2000, `ожидание ${Date.now() - started} мс`);
+    assert.equal(fake.requests.length, 1);
+  });
+});
+
 describe("yookassa: getPayment / getRefund / createRefund", () => {
   it("getPayment: GET /payments/{id} без Idempotence-Key, ответ проверен Zod", async () => {
     const created = await client().createPayment(PARAMS);

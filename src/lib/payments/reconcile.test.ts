@@ -85,6 +85,53 @@ describe("reconcileOrderPayments: webhook не дошёл (Edge Case 4)", () => 
   });
 });
 
+describe("сверка: succeeded-платёж у неоплаченного заказа (обработка оборвалась между шагами)", () => {
+  it("payments.succeeded + заказ pending_payment → сверка при открытии заказа → paid с суммой из повторного GET", async () => {
+    const id = await pendingPayment();
+    fake.succeed(id);
+    const row = repo.paymentRaw(id);
+    if (!row) throw new Error("no row");
+    row.status = "succeeded"; // состояние после сбоя (в т.ч. данные, записанные до смены порядка шагов)
+    at(61_000);
+    const sum = await reconcileOrderPaymentsWith(deps, ORDER_ID);
+    assert.equal(sum.paid, 1);
+    assert.deepEqual(repo.markPaidCalls, [{ orderId: ORDER_ID, amount: 13370000 }]);
+    assert.equal(repo.orders.get(ORDER_ID)?.status, "paid");
+    assert.deepEqual(notes.map((n) => n.template), ["admin_order_paid", "customer_order_paid"]);
+  });
+
+  it("cron подхватывает succeeded у заказов pending_payment/cancelled независимо от возраста; оплаченные — нет", async () => {
+    const id = await pendingPayment();
+    fake.succeed(id);
+    const row = repo.paymentRaw(id);
+    if (!row) throw new Error("no row");
+    row.status = "succeeded";
+    const o = repo.orders.get(ORDER_ID);
+    if (!o) throw new Error("no order");
+    o.status = "cancelled"; // бронь истекла, cron отменил заказ
+    at(72 * 3600_000);
+    const sum = await reconcileStalePaymentsWith(deps);
+    assert.equal(sum.paid, 1);
+    assert.equal(o.status, "paid");
+    assert.equal(o.attention_reason, "Оплачен после истечения брони");
+    fake.requests.length = 0;
+    assert.equal((await reconcileStalePaymentsWith(deps)).checked, 0);
+    assert.equal(gets(), 0);
+  });
+
+  it("сбой mark_order_paid при сверке → строка остаётся pending, следующая сверка доводит до paid", async () => {
+    mock.method(console, "error", () => {});
+    const id = await pendingPayment();
+    fake.succeed(id);
+    at(61_000);
+    repo.failOnce.set("markOrderPaid", new Error("rpc.mark_order_paid: 57014"));
+    assert.equal((await reconcileOrderPaymentsWith(deps, ORDER_ID)).failed, 1);
+    assert.equal(repo.paymentRaw(id)?.status, "pending");
+    at(200_000);
+    assert.equal((await reconcileOrderPaymentsWith(deps, ORDER_ID)).paid, 1);
+  });
+});
+
 describe("reconcileStalePayments (cron, шаг 4)", () => {
   it("все pending младше 48 ч; старше — не проверяются", async () => {
     const order = repo.orders.get(ORDER_ID);
