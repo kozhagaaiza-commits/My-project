@@ -30,8 +30,9 @@ export function recordingClient(respond: (q: Recorded) => FakeResult = () => ({ 
       queries.push(rec);
       return chain(rec);
     },
-    async rpc(fn: string, args?: unknown) {
-      const rec: Recorded = { table: `rpc:${fn}`, calls: [["rpc", ...(args === undefined ? [] : [args])]] };
+    async rpc(fn: string, args?: unknown, options?: unknown) {
+      const rest = options === undefined ? (args === undefined ? [] : [args]) : [args, options];
+      const rec: Recorded = { table: `rpc:${fn}`, calls: [["rpc", ...rest]] };
       queries.push(rec);
       return respond(rec);
     },

@@ -1,18 +1,23 @@
 import "server-only";
 import { formatRub } from "@/lib/money";
-import type { PaymentRow, RefundRow } from "@/lib/payments/db-rows";
+import { UNPAID_ORDER_STATUSES, type OrderForPayment, type PaymentRow, type RefundRow } from "@/lib/payments/db-rows";
 import { getDefaultPaymentsDeps, type PaymentsDeps } from "@/lib/payments/deps";
 import { earliestRefund, pickPrimaryPayment } from "@/lib/payments/duplicates";
 import { linesTotal, refundReceiptItems } from "@/lib/payments/receipt";
+import { reconcileOrderPaymentsWith } from "@/lib/payments/reconcile";
 import { refundTotals } from "@/lib/payments/refundable";
 import { ADMIN_REUSE_WINDOW_MS, ADMIN_RETRYABLE_PREFIX, applyProviderRefund, refreshOrderRefunds } from "@/lib/payments/refund-refresh";
 import { RESERVED_REFUND_REASON, type AdminRefundResponse } from "@/lib/schemas/admin-refund";
 import { YookassaApiError, buildReceipt, type YookassaRefund } from "@/lib/yookassa";
 
 // Ручной возврат из админки (Блок 3 «POST /api/admin/orders/[id]/refund», US-008, BR-16, BR-17, Edge Cases 38, 40).
+// -1. Заказ pending_payment / cancelled → сверка платежей (reconcile.ts, бюджет REFUND_RECONCILE_BUDGET_MS), как в
+//     GET /api/admin/orders/[id]. Заказ так и не оплачен, но есть succeeded-платёж или сверка не уложилась →
+//     payment_unconfirmed (409): возврат до mark_order_paid дал бы paid при возвращённых деньгах.
 //  0. Доводятся pending ручные возвраты заказа (refund-refresh.ts). Запрос без ответа ЮKassa моложе 5 минут → in_progress.
 //  1. refundable = paid_amount − Σ refunds(pending|succeeded) (по одному платежу, refundable.ts), не больше суммы
-//     позиций чека. amount > refundable → exceeds (422).
+//     позиций чека. amount > refundable → exceeds (422). restock = true вне BR-17 (preorder, delivered, сумма ≠ всему
+//     остатку) → restock_not_allowed (400) — явный отказ вместо молчаливого игнора (Dialog такой запрос не шлёт).
 //  2. Insert refunds (pending, created_by = админ). Исключение — повтор после сбоя связи: строка failed с пометкой
 //     ADMIN_RETRYABLE_PREFIX той же суммы по тому же платежу (≤ 23 ч) снова становится pending, ключ refund_<id> тот же.
 //     23505 (uq_refunds_duplicate_payment) → conflict (409). Два одновременных запроса: оформляет самый ранний pending
@@ -39,7 +44,25 @@ export type AdminRefundOutcome =
   | { kind: "in_progress" }
   | { kind: "conflict" }
   | { kind: "rejected"; description: string; code: string | null }
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  /** Заказ pending_payment / cancelled, а оплата есть или не проверена (сверка не уложилась / не прошла). */
+  | { kind: "payment_unconfirmed" }
+  /** restock = true вне BR-17; partial — запрет только из-за неполной суммы. */
+  | { kind: "restock_not_allowed"; message: string; partial: boolean };
+
+export interface AdminRefundOptions {
+  /** Сверка платежей заказа (по умолчанию reconcileOrderPaymentsWith — общий путь с webhook). */
+  reconcile?: (orderId: string) => Promise<unknown>;
+  /** Бюджет ожидания сверки, мс. */
+  reconcileBudgetMs?: number;
+}
+
+/** Как ADMIN_RECONCILE_BUDGET_MS карточки заказа: 8 с сверки + 25 с POST /v3/refunds укладываются в maxDuration 60 с. */
+export const REFUND_RECONCILE_BUDGET_MS = 8_000;
+export const RESTOCK_PREORDER_MESSAGE = "Вернуть на склад можно только товар со склада, не под заказ";
+export const RESTOCK_DELIVERED_MESSAGE = "Заказ доставлен: товар на склад не возвращается";
+export const RESTOCK_PARTIAL_MESSAGE = "Вернуть на склад можно только при возврате всей суммы";
+const UNPAID: ReadonlySet<string> = new Set<string>(UNPAID_ORDER_STATUSES);
 
 const isManual = (r: RefundRow) => r.reason !== RESERVED_REFUND_REASON;
 
@@ -75,18 +98,66 @@ async function lostRace(deps: PaymentsDeps, row: RefundRow, reusable: RefundRow 
   return true;
 }
 
-export async function createAdminRefundWith(deps: PaymentsDeps, input: AdminRefundInput): Promise<AdminRefundOutcome> {
+async function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+  try {
+    return await Promise.race([task.then(() => true, () => true), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Заказ pending_payment / cancelled: webhook мог опоздать. Сверка (reconcile.ts, тот же путь, что webhook) — до расчёта
+ * суммы, иначе возврат по succeeded-платежу + поздний mark_order_paid дали бы paid при возвращённых деньгах.
+ * Возвращает актуальный заказ, null — заказ исчез, "unconfirmed" — деньги есть или могут быть, а заказ не оплачен.
+ */
+async function ensurePaidOrder(
+  deps: PaymentsDeps, order: OrderForPayment, opts: AdminRefundOptions,
+): Promise<OrderForPayment | null | "unconfirmed"> {
+  if (!UNPAID.has(order.status)) return order;
+  const reconcile = opts.reconcile ?? ((id: string) => reconcileOrderPaymentsWith(deps, id));
+  const budget = opts.reconcileBudgetMs ?? REFUND_RECONCILE_BUDGET_MS;
+  if (!(await settlesWithin(Promise.resolve().then(() => reconcile(order.id)), budget))) {
+    console.error({ scope: "payments.adminRefund.reconcile", order_id: order.id, msg: "reconcile budget exceeded", budgetMs: budget });
+    return "unconfirmed";
+  }
+  const fresh = await deps.repo.getOrder(order.id);
+  if (!fresh || !UNPAID.has(fresh.status)) return fresh;
+  // Оплата не учтена. Есть succeeded-платёж (сбой между ним и mark_order_paid, сверка ещё не прошла) → ждём;
+  // нет — возвращать нечего (дальше refundable = 0 → REFUND_EXCEEDS_PAID).
+  const payments = await deps.repo.listOrderPayments(order.id);
+  return payments.some((p) => p.status === "succeeded" || p.status === "waiting_for_capture") ? "unconfirmed" : fresh;
+}
+
+/** BR-17: restock — только stock, не delivered и только полный остаток к возврату (restock_order возвращает ВСЕ позиции). */
+function restockError(order: OrderForPayment, amount: number, refundable: number): string | null {
+  if (order.kind !== "stock") return RESTOCK_PREORDER_MESSAGE;
+  if (order.status === "delivered") return RESTOCK_DELIVERED_MESSAGE;
+  if (amount !== refundable) return `${RESTOCK_PARTIAL_MESSAGE}: ${formatRub(refundable)}`;
+  return null;
+}
+
+export async function createAdminRefundWith(
+  deps: PaymentsDeps, input: AdminRefundInput, opts: AdminRefundOptions = {},
+): Promise<AdminRefundOutcome> {
   const { repo } = deps;
-  const order = await repo.getOrder(input.orderId);
-  if (!order) return { kind: "not_found" };
+  const read = await repo.getOrder(input.orderId);
+  if (!read) return { kind: "not_found" };
+  const order = await ensurePaidOrder(deps, read, opts);
+  if (order === null) return { kind: "not_found" };
+  if (order === "unconfirmed") return { kind: "payment_unconfirmed" };
   if ((await refreshOrderRefunds(deps, order.id)).inFlight) return { kind: "in_progress" };
 
   const [payments, refunds, items] = await Promise.all([
     repo.listOrderPayments(order.id), repo.listOrderRefunds(order.id), repo.getOrderItems(order.id),
   ]);
   const totals = refundTotals(payments, refunds);
-  const refundable = Math.min(totals.refundable_amount, linesTotal(items));
+  const refundable = UNPAID.has(order.status) ? 0 : Math.min(totals.refundable_amount, linesTotal(items));
   if (input.amount > refundable) return { kind: "exceeds", refundable };
+  const restockMessage = input.restock ? restockError(order, input.amount, refundable) : null;
+  if (restockMessage) return { kind: "restock_not_allowed", message: restockMessage, partial: order.kind === "stock" && order.status !== "delivered" };
 
   const candidates = payments.filter((p) => p.status === "succeeded" && (totals.by_payment.get(p.id) ?? 0) >= input.amount);
   const nowMs = deps.now().getTime();

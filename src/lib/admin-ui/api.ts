@@ -18,6 +18,7 @@ export interface ApiSuccess<T, M = unknown> {
 export type ApiResult<T, M = unknown> = ApiSuccess<T, M> | ApiFailure;
 
 const FALLBACK_MESSAGE = "Что-то пошло не так. Повторите попытку";
+const TIMEOUT_MESSAGE = "Ответ не получен. Обновите страницу и проверьте возвраты заказа";
 const NETWORK_MESSAGE = "Нет соединения. Проверьте интернет и повторите";
 
 interface RawBody {
@@ -69,6 +70,9 @@ export async function adminRequest<T, M = unknown>(
     };
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") throw e;
+    if (e instanceof DOMException && e.name === "TimeoutError") {
+      return { ok: false, status: 0, code: "TIMEOUT", message: TIMEOUT_MESSAGE, details: null };
+    }
     return { ok: false, status: 0, code: "NETWORK_ERROR", message: NETWORK_MESSAGE, details: null };
   }
 }

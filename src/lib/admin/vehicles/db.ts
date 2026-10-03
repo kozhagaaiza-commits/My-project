@@ -17,7 +17,6 @@ function check(scope: string, res: PgResult): unknown {
 }
 
 const idRow = z.object({ id: z.string() });
-const fitRow = z.object({ product_id: z.string() });
 
 export function createAdminVehiclesRepo(c: SupabaseClient, service: () => SupabaseClient): AdminVehiclesRepo {
   return {
@@ -56,8 +55,11 @@ export function createAdminVehiclesRepo(c: SupabaseClient, service: () => Supaba
     },
 
     async fittingWheelsCount(vehicleId) {
-      const data = check("admin.rpc.find_wheels_for_vehicle", await service().rpc("find_wheels_for_vehicle", { p_vehicle_id: vehicleId }));
-      return fitRow.array().parse(data ?? []).length;
+      // Только число строк: HEAD + count=exact, тело не передаётся (функция stable — GET/HEAD допустим).
+      const res = await service().rpc("find_wheels_for_vehicle", { p_vehicle_id: vehicleId }, { head: true, count: "exact" });
+      check("admin.rpc.find_wheels_for_vehicle", res);
+      if (typeof res.count !== "number") throw new DbError("admin.rpc.find_wheels_for_vehicle", undefined, "count не получен");
+      return res.count;
     },
   };
 }

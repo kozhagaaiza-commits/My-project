@@ -17,9 +17,8 @@ export interface AdminProductRow {
   id: string;
   type: AdminProductType;
   sku: string;
-  /** TODO(backend-engineer): в JSON Чертежа slug и cover_url в списке нет — нужны для «Открыть на сайте» и миниатюры 48×48. */
-  slug?: string;
-  cover_url?: string | null;
+  slug: string;
+  cover_url: string | null;
   title: string;
   status: AdminProductStatus;
   availability_mode: "stock" | "preorder";

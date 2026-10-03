@@ -31,7 +31,7 @@ export interface AdminOrderListItem {
 }
 
 export interface AdminOrderItem {
-  product_id: string;
+  product_id: string | null;
   title: string;
   sku: string;
   specs: Record<string, unknown>;
@@ -48,12 +48,14 @@ export interface AdminOrderPayment {
   created_at: string;
 }
 
-// В Чертеже refunds: [] без примера записи — поля уточнить по ответу бэкенда.
 export interface AdminOrderRefund {
+  id: string;
+  yookassa_refund_id: string | null;
   status: string;
   amount_formatted: string;
-  reason?: string | null;
-  error_message?: string | null;
+  reason: string | null;
+  restock: boolean;
+  error_message: string | null;
   created_at: string;
 }
 
@@ -121,7 +123,7 @@ export interface AdminMetaPatchResult {
 
 export interface AdminRefundResult {
   refund_id: string;
-  yookassa_refund_id: string;
+  yookassa_refund_id: string | null;
   status: "succeeded" | "pending";
   amount_formatted: string;
   order_status: OrderStatus;
@@ -162,8 +164,15 @@ export interface RepriceChange {
   new_price_formatted: string;
 }
 
+export interface RepriceSkipped {
+  product_id: string;
+  title: string;
+  reason: string;
+}
+
 export interface AdminRecalculateResult {
   dry_run: boolean;
   changes: RepriceChange[];
   unchanged: number;
+  skipped: RepriceSkipped[];
 }

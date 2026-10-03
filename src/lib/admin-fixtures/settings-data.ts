@@ -53,7 +53,7 @@ export function handleSettingsRoute(state: SettingsState, method: string, parts:
   }
   if (section === "prices" && id === "recalculate" && method === "POST") {
     if (!state.ratesDate) return err(422, "RATE_NOT_LOADED", "Курс USD не загружен");
-    const data: AdminRecalculateResult = { dry_run: body.dry_run === true, changes: CHANGES, unchanged: 17 };
+    const data: AdminRecalculateResult = { dry_run: body.dry_run === true, changes: CHANGES, unchanged: 17, skipped: [{ product_id: "skip-1", title: "Карбоновый сплиттер (демо)", reason: "Цена ателье выше новой розничной цены" }] };
     return ok(data);
   }
   return null;

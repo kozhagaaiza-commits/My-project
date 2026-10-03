@@ -115,7 +115,7 @@ function refund(d: AdminOrderDetail, body: Record<string, unknown>): FixtureResp
   }
   d.refunded_amount += amount;
   d.refundable_amount -= amount;
-  d.refunds.push({ status: "succeeded", amount_formatted: formatRub(amount), reason: String(body.reason), created_at: now() });
+  d.refunds.push({ id: `refund-${d.refunds.length + 1}`, yookassa_refund_id: null, status: "succeeded", amount_formatted: formatRub(amount), reason: String(body.reason), restock: body.restock === true, error_message: null, created_at: now() });
   if (d.refundable_amount === 0) {
     d.history.push({ from_status: d.status, to_status: "refunded", note: String(body.reason), changed_by_name: "Админ", created_at: now() });
     d.status = "refunded";

@@ -30,3 +30,21 @@ export const DELIVERY_METHOD_LABELS: Record<DeliveryMethod, string> = {
 
 export const orderStatusLabel = (status: string): string =>
   (ORDER_STATUS_LABELS as Record<string, string>)[status] ?? status;
+
+/** Статусы платежей и возвратов ЮKassa (админка). */
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  succeeded: "Оплачен",
+  pending: "В обработке",
+  canceled: "Отменён",
+  failed: "Ошибка",
+};
+
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  succeeded: "Выполнен",
+  pending: "В обработке",
+  canceled: "Отменён",
+  failed: "Ошибка",
+};
+
+export const paymentStatusLabel = (status: string): string => PAYMENT_STATUS_LABELS[status] ?? status;
+export const refundStatusLabel = (status: string): string => REFUND_STATUS_LABELS[status] ?? status;

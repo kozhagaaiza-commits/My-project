@@ -123,7 +123,7 @@ describe("ImageStorage (бакет product-images, сессионный клие
 describe("AdminVehiclesRepo", () => {
   it("list (сессия) и find_wheels_for_vehicle (service-role)", async () => {
     const session = recordingClient(() => ({ data: [], error: null, count: 0 }));
-    const service = recordingClient(() => ({ data: [{ product_id: "a", needs_hub_rings: false }, { product_id: "b", needs_hub_rings: true }], error: null }));
+    const service = recordingClient(() => ({ data: null, error: null, count: 2 }));
     const repo = createAdminVehiclesRepo(session.client, () => service.client);
     await repo.list({ make: "BMW", q: "5", page: 1, perPage: 20 });
     assert.equal(await repo.fittingWheelsCount("v1"), 2);
@@ -131,7 +131,15 @@ describe("AdminVehiclesRepo", () => {
       ["select", ADMIN_VEHICLE_COLUMNS, { count: "exact" }], ["eq", "make", "BMW"], ["or", "model.ilike.%5%,generation.ilike.%5%"],
       ["order", "make"], ["order", "model"], ["order", "year_from"], ["order", "generation"], ["range", 0, 19],
     ]);
-    assert.deepEqual(service.queries, [{ table: "rpc:find_wheels_for_vehicle", calls: [["rpc", { p_vehicle_id: "v1" }]] }]);
+    assert.deepEqual(service.queries, [{
+      table: "rpc:find_wheels_for_vehicle", calls: [["rpc", { p_vehicle_id: "v1" }, { head: true, count: "exact" }]],
+    }]);
+  });
+  it("fittingWheelsCount: ошибка RPC или нет count → DbError", async () => {
+    const failing = recordingClient(() => ({ data: null, error: { message: "permission denied", code: "42501" } }));
+    await assert.rejects(createAdminVehiclesRepo(failing.client, () => failing.client).fittingWheelsCount("v1"), DbError);
+    const noCount = recordingClient(() => ({ data: null, error: null, count: null }));
+    await assert.rejects(createAdminVehiclesRepo(noCount.client, () => noCount.client).fittingWheelsCount("v1"), /count не получен/);
   });
   it("delete → select id (0 строк = 404)", async () => {
     const { client, queries } = recordingClient(() => ({ data: [], error: null }));

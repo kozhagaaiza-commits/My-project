@@ -65,7 +65,7 @@ export function useAdminOrderActions(order: AdminOrderDetail, reload: () => void
             if (res.data.updated_at) stamp.current = res.data.updated_at;
             if (options.success) toast.success(options.success);
             reload();
-          } else if (res.code === "CONFLICT") {
+          } else if (res.code === "CONFLICT" || res.code === "TIMEOUT") {
             toast.error(res.message);
             reload();
           } else if (!options.inline?.includes(res.code)) {

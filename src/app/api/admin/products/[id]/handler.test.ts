@@ -181,6 +181,28 @@ describe("PATCH /api/admin/products/[id]", () => {
     assert.deepEqual(db.called("updateProduct")[0][3], { status: "draft" });
   });
 
+  it("сбой записи совместимости после update → 500 с новым updated_at; повтор с ним проходит без CONFLICT", async () => {
+    mock.method(console, "error", () => {});
+    const db = new FakeProductsDb(carbonProduct());
+    db.links.add(`${C1}|${V1}`);
+    db.failures.set("replaceProductVehicles", new Error("db down"));
+    const h = createAdminProductHandlers(fakeDeps(db).deps);
+    const first = await json(await h.PATCH(patchReq(C1, { compatible_vehicle_ids: [V2], updated_at: T0_CANON }), params({ id: C1 })));
+    assert.equal(first.status, 500);
+    const err = first.body.error as { code: string; message: string; details: { updated_at: string; failed_fields: string[] } };
+    assert.equal(err.code, "INTERNAL_ERROR");
+    assert.equal(err.message, "Что-то пошло не так. Мы уже разбираемся");
+    assert.deepEqual(err.details.failed_fields, ["compatible_vehicle_ids"]);
+    assert.notEqual(err.details.updated_at, T0_CANON);
+    assert.deepEqual([...db.links], [`${C1}|${V1}`]);
+
+    const stale = await h.PATCH(patchReq(C1, { compatible_vehicle_ids: [V2], updated_at: T0_CANON }), params({ id: C1 }));
+    assert.equal(stale.status, 409);
+    const retry = await h.PATCH(patchReq(C1, { compatible_vehicle_ids: [V2], updated_at: err.details.updated_at }), params({ id: C1 }));
+    assert.equal(retry.status, 200);
+    assert.deepEqual([...db.links], [`${C1}|${V2}`]);
+  });
+
   it("ничего не изменилось → 200 без записи", async () => {
     const db = new FakeProductsDb(wheelProduct());
     const { status, body } = await json(await createAdminProductHandlers(fakeDeps(db).deps).PATCH(

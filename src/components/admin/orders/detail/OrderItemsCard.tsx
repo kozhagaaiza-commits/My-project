@@ -19,8 +19,8 @@ export function OrderItemsCard({ order, className }: { order: AdminOrderDetail; 
           </TableRow>
         </TableHeader>
         <TableBody>
-          {order.items.map((item) => (
-            <TableRow key={item.product_id}>
+          {order.items.map((item, i) => (
+            <TableRow key={`${item.sku}-${i}`}>
               <TableCell className="max-w-80 whitespace-normal">
                 <div className="font-medium">{item.title}</div>
                 <div className="font-mono text-xs text-muted-foreground">{item.sku}</div>

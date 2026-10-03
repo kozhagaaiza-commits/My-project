@@ -23,6 +23,7 @@ export interface AdminRefundDeps {
 export const REFUND_IN_PROGRESS_MESSAGE = "Предыдущий возврат по заказу ещё обрабатывается. Обновите страницу через несколько минут";
 export const REFUND_CONFLICT_MESSAGE = "Возврат по этому платежу уже оформляется. Обновите страницу";
 export const REFUND_UNAVAILABLE_MESSAGE = "ЮKassa не ответила. Повторите возврат через несколько минут";
+export const REFUND_PAYMENT_UNCONFIRMED_MESSAGE = "Оплата заказа ещё не подтверждена. Обновите страницу через минуту";
 
 const NO_STORE = "private, no-store";
 
@@ -47,6 +48,14 @@ function respond(out: AdminRefundOutcome): Response {
     case "unavailable": {
       const details: RefundProviderErrorDetails = { yookassa_code: null };
       return apiError("PAYMENT_PROVIDER_ERROR", REFUND_UNAVAILABLE_MESSAGE, 502, details);
+    }
+    case "payment_unconfirmed":
+      return apiError("CONFLICT", REFUND_PAYMENT_UNCONFIRMED_MESSAGE, 409);
+    case "restock_not_allowed": {
+      // Формат 400 VALIDATION_ERROR (details.fields): Dialog показывает ошибку поля amount inline.
+      const fields: Record<string, string[]> = { restock: [out.message] };
+      if (out.partial) fields.amount = [out.message];
+      return apiError("VALIDATION_ERROR", out.message, 400, { fields });
     }
   }
 }

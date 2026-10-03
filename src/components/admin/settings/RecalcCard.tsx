@@ -9,19 +9,39 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminRequest } from "@/lib/admin-ui/api";
 import { pluralRu } from "@/lib/admin-ui/format";
-import type { AdminRecalculateResult } from "@/lib/admin-ui/types";
+import type { AdminRecalculateResult, RepriceSkipped } from "@/lib/admin-ui/types";
 
 type Busy = "preview" | "apply" | null;
+
+function SkippedList({ skipped }: { skipped: RepriceSkipped[] }) {
+  if (skipped.length === 0) return null;
+  return (
+    <Alert>
+      <AlertDescription className="flex flex-col gap-1">
+        <span className="font-medium">Пропущено: {skipped.length}</span>
+        <ul className="flex flex-col gap-0.5 text-xs">
+          {skipped.map((s) => (
+            <li key={s.product_id}>
+              {s.title} — <span className="text-muted-foreground">{s.reason}</span>
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 /** «Пересчёт цен»: dry_run → таблица старая/новая → «Применить» (dry_run: false). */
 export function RecalcCard() {
   const [busy, setBusy] = useState<Busy>(null);
   const [preview, setPreview] = useState<AdminRecalculateResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [applied, setApplied] = useState<RepriceSkipped[]>([]);
 
   async function run(dryRun: boolean) {
     setBusy(dryRun ? "preview" : "apply");
     setError(null);
+    if (!dryRun) setApplied([]);
     try {
       const res = await adminRequest<AdminRecalculateResult>("POST", "/api/admin/prices/recalculate", { dry_run: dryRun });
       if (!res.ok) {
@@ -31,10 +51,12 @@ export function RecalcCard() {
       }
       if (dryRun) {
         setPreview(res.data);
+        setApplied([]);
       } else {
         const n = res.data.changes.length;
         toast.success(`Обновлено ${n} ${pluralRu(n, "цена", "цены", "цен")}`);
         setPreview(null);
+        setApplied(res.data.skipped ?? []);
       }
     } finally {
       setBusy(null);
@@ -53,7 +75,11 @@ export function RecalcCard() {
       )}
       {preview && (
         changes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Цены не изменятся. Без изменений: {preview.unchanged}</p>
+          <p className="text-sm text-muted-foreground">
+            {(preview.skipped ?? []).length > 0
+              ? `Применить нечего: цены не изменятся, пропущено ${preview.skipped.length}. Без изменений: ${preview.unchanged}`
+              : `Цены не изменятся. Без изменений: ${preview.unchanged}`}
+          </p>
         ) : (
           <>
             <Table>
@@ -78,6 +104,7 @@ export function RecalcCard() {
           </>
         )
       )}
+      <SkippedList skipped={preview ? (preview.skipped ?? []) : applied} />
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={() => run(true)} disabled={busy !== null}>
           {busy === "preview" && <Loader2 className="animate-spin" aria-hidden />}

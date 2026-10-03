@@ -3,7 +3,7 @@ import { formatRub } from "@/lib/money";
 import type { AdminProductsDeps } from "@/lib/admin/products/deps";
 import { resolveAutoPrice } from "@/lib/admin/products/auto-price";
 import { toAdminDetail, toUpsertShape } from "@/lib/admin/products/format";
-import { fieldError, isUuid, okJson, readJson, runAdmin, zodError } from "@/lib/admin/products/http";
+import { INTERNAL_MESSAGE, fieldError, isUuid, okJson, readJson, runAdmin, zodError } from "@/lib/admin/products/http";
 import { canonicalTimestamp, dbTimestamp } from "@/lib/admin/products/timestamps";
 import {
   ATELIER_ABOVE_RETAIL, CARBON_ONLY, TYPE_IMMUTABLE, autoPriceFailure, changedColumns, checkVehicles, photoRequired,
@@ -101,7 +101,18 @@ async function patch(request: Request, id: string, deps: AdminProductsDeps): Pro
     throw err;
   }
   if (!row) return productConflict();
-  if (vehiclesChanged && newVehicleIds !== null) await repo.replaceProductVehicles(id, newVehicleIds);
+  if (vehiclesChanged && newVehicleIds !== null) {
+    // Два шага не атомарны (RPC — docs/BACKLOG.md). Поля товара уже записаны и updated_at сдвинут: отдаём новый
+    // updated_at в details, чтобы повтор формы не упёрся в ложный CONFLICT и дописал совместимость.
+    try {
+      await repo.replaceProductVehicles(id, newVehicleIds);
+    } catch (err) {
+      console.error({ scope: "admin.products.patch.vehicles", productId: id, err });
+      return apiError("INTERNAL_ERROR", INTERNAL_MESSAGE, 500, {
+        updated_at: dbTimestamp(row.updated_at), failed_fields: ["compatible_vehicle_ids"],
+      });
+    }
+  }
 
   return okJson({
     id,

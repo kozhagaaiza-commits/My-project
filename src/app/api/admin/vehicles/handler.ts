@@ -2,11 +2,13 @@ import { z } from "zod";
 import { vehicleLabel } from "@/lib/catalog";
 import { ADMIN_PAGE_SIZE, okJson, queryObject, readJson, runAdmin, zodError } from "@/lib/admin/products/http";
 import type { AdminVehiclesDeps } from "@/lib/admin/vehicles/deps";
+import { fittingCounts } from "@/lib/admin/vehicles/fitting";
 import { isUniqueViolation, toAdminVehicle, vehicleDuplicate } from "@/lib/admin/vehicles/responses";
 import { adminVehiclesQuery, vehicleUpsertBody } from "@/lib/schemas/admin-vehicles";
 
 // GET /api/admin/vehicles?make=BMW&page=1 и POST /api/admin/vehicles (Блок 3 «Админка — автомобили»).
-// fitting_products_count — число строк find_wheels_for_vehicle («Подходящих дисков», Блок 4).
+// fitting_products_count — число строк find_wheels_for_vehicle («Подходящих дисков», Блок 4): только count
+// (HEAD-запрос RPC), не больше 5 запросов одновременно.
 
 async function list(request: Request, deps: AdminVehiclesDeps): Promise<Response> {
   const denied = await deps.requireAdmin(request);
@@ -19,7 +21,7 @@ async function list(request: Request, deps: AdminVehiclesDeps): Promise<Response
   const q = parsed.data;
   const repo = await deps.repo();
   const { rows, total } = await repo.list({ make: q.make, q: q.q, page: q.page, perPage: ADMIN_PAGE_SIZE });
-  const counts = await Promise.all(rows.map((r) => repo.fittingWheelsCount(r.id)));
+  const counts = await fittingCounts(repo, rows.map((r) => r.id));
   return okJson(rows.map((r, i) => toAdminVehicle(r, counts[i])), 200, { total, page: q.page, per_page: ADMIN_PAGE_SIZE });
 }
 

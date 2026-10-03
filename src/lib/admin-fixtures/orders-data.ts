@@ -83,7 +83,7 @@ export function buildDetail(n: number): AdminOrderDetail {
     total: l.total, total_formatted: l.total_formatted, paid_amount: paidAmount, refunded_amount: refundedAmount,
     refundable_amount: paidAmount - refundedAmount,
     payments: isPaid ? [{ yookassa_payment_id: `30a8d2c1-000f-5000-9000-${String(n).padStart(12, "0")}`, status: "succeeded", method: n % 2 ? "sbp" : "bank_card", amount_formatted: l.total_formatted, created_at: isoAt(n, 2) }] : [],
-    refunds: refundedAmount > 0 ? [{ status: "succeeded", amount_formatted: l.total_formatted, reason: "Клиент отказался до отправки", created_at: isoAt(n, 600) }] : [],
+    refunds: refundedAmount > 0 ? [{ id: `refund-${n}`, yookassa_refund_id: null, status: "succeeded", amount_formatted: l.total_formatted, reason: "Клиент отказался до отправки", restock: false, error_message: null, created_at: isoAt(n, 600) }] : [],
     history: [
       { from_status: null, to_status: "pending_payment", note: "Заказ создан", changed_by_name: null, created_at: l.created_at },
       ...(isPaid ? [{ from_status: "pending_payment" as OrderStatus, to_status: "paid" as OrderStatus, note: s.attention ? ATTENTION : "Оплата подтверждена ЮKassa", changed_by_name: null, created_at: isoAt(n, 4) }] : []),

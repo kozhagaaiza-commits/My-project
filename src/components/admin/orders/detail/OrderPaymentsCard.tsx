@@ -3,6 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDateTime } from "@/lib/admin-ui/format";
 import type { AdminOrderDetail } from "@/lib/admin-ui/types";
 import { formatRub } from "@/lib/money";
+import { paymentStatusLabel, refundStatusLabel } from "@/lib/order-labels";
 import { cn } from "@/lib/utils";
 
 const PAYMENT_METHODS: Record<string, string> = { sbp: "СБП", bank_card: "Карта" };
@@ -40,7 +41,7 @@ export function OrderPaymentsCard({ order, className }: { order: AdminOrderDetai
                 <TableCell className="whitespace-normal">
                   <div className="font-mono text-xs break-all">{p.yookassa_payment_id}</div>
                   <div className="text-xs text-muted-foreground">
-                    {p.status}{p.method ? ` · ${PAYMENT_METHODS[p.method] ?? p.method}` : ""} · {formatDateTime(p.created_at)}
+                    {paymentStatusLabel(p.status)}{p.method ? ` · ${PAYMENT_METHODS[p.method] ?? p.method}` : ""} · {formatDateTime(p.created_at)}
                   </div>
                 </TableCell>
                 <TableCell className="text-right font-mono whitespace-nowrap tabular-nums">{p.amount_formatted}</TableCell>
@@ -58,12 +59,12 @@ export function OrderPaymentsCard({ order, className }: { order: AdminOrderDetai
             </TableRow>
           </TableHeader>
           <TableBody>
-            {order.refunds.map((r, i) => (
-              <TableRow key={`${r.created_at}-${i}`}>
+            {order.refunds.map((r) => (
+              <TableRow key={r.id}>
                 <TableCell className="whitespace-normal">
                   <div className="text-sm">{r.reason ?? "—"}</div>
                   <div className="text-xs text-muted-foreground">
-                    {r.status} · {formatDateTime(r.created_at)}
+                    {refundStatusLabel(r.status)} · {formatDateTime(r.created_at)}
                   </div>
                   {r.error_message && <div className="text-xs text-destructive">{r.error_message}</div>}
                 </TableCell>
