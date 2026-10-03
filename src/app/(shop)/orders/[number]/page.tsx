@@ -20,7 +20,10 @@ async function loadView(number: string, token: string | null): Promise<GetOrderV
   // Условие записано прямо в выражении: в production-сборке NODE_ENV заменяется на "production", ветка с import
   // фикстур вырезается и src/lib/order-page-fixtures.ts в .next/server не попадает (как в catalog-queries.ts).
   if (process.env.NODE_ENV !== "production" && process.env.ORDERS_FIXTURES === "1") {
-    return (await import("@/lib/order-page-fixtures")).getFixtureOrderView(number, token);
+    const fixtures = await import("@/lib/order-page-fixtures");
+    const delay = fixtures.fixtureDelayMs(number);
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+    return fixtures.getFixtureOrderView(number, token);
   }
   // Лимит чтения заказа (30 / 60 с на IP, как у GET /api/orders/[number]) — защита от перебора номеров и токенов.
   // limitOrderRead принимает Request: собираем его из заголовков запроса страницы. Превышение/сбой хранилища → error.tsx.

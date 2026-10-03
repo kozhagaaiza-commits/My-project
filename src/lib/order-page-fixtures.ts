@@ -48,7 +48,7 @@ function view(number: string, status: OrderStatus, patch: Partial<OrderView> = {
 const CDEK_TRACK = { number: "1234567890", url: "https://www.cdek.ru/ru/tracking?order_id=1234567890" };
 
 /** Набор состояний: 01 paid, 02 shipped СДЭК, 03 preorder in_transit, 04 pending_payment с бронью, 05 cancelled,
- *  06 refunded, 07 курьер, 08 с заметкой, 09 delivered, 10 preorder paid, 11 подписан на Telegram, 12 без slug. */
+ *  06 refunded, 07 курьер, 08 с заметкой, 09 delivered, 10 preorder paid, 11 подписан на Telegram, 12 без slug, 13 медленный (loading). */
 export function fixtureOrderViews(now: Date = new Date()): Record<string, OrderView> {
   const n = (i: number) => `FC-26-${String(i).padStart(6, "0")}`;
   const preorder = { kind: "preorder" as const, items: [DIFFUSER], total: 9860000, total_formatted: "98 600 ₽" };
@@ -82,8 +82,12 @@ export function fixtureOrderViews(now: Date = new Date()): Record<string, OrderV
     [n(10)]: view(n(10), "paid", { ...preorder, timeline: timeline("preorder", 1), expected_ready_at: "2026-11-05" }),
     [n(11)]: view(n(11), "paid", { telegram_subscribed: true, telegram_link: null }),
     [n(12)]: view(n(12), "paid", { items: [WHEELS, CAP], total: 14010000, total_formatted: "140 100 ₽" }),
+    [n(13)]: view(n(13), "paid"), // медленный: страница ждёт fixtureDelayMs (для проверки loading.tsx)
   };
 }
+
+/** Искусственная задержка ответа сервера (мс) для медленного заказа 13 — чтобы на экране был виден loading.tsx. */
+export const fixtureDelayMs = (number: string): number => (number === "FC-26-000013" ? 2500 : 0);
 
 export function getFixtureOrderView(number: string, token: string | null, now: Date = new Date()): FixtureResult {
   if (token !== FIXTURE_ORDER_TOKEN) return { kind: "not_found" };
