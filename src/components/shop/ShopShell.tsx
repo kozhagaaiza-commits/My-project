@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MetrikaScript } from "@/components/shop/MetrikaScript";
 import { SiteFooter } from "@/components/shop/SiteFooter";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -19,6 +20,7 @@ export function ShopShell({ header, children }: ShopShellProps) {
         </main>
         <SiteFooter />
       </div>
+      <MetrikaScript />
     </TooltipProvider>
   );
 }

@@ -17,6 +17,9 @@ export interface AutoRepriceOutcome {
   skipped_products: number;
 }
 
+/** Сдвиг курса в %, округлён до 6 знаков: 83.56 → 85.2312 ровно 2 %, а не 1.9999999… из-за float. */
+const shiftPercent = (latest: number, base: number): number => Math.round((Math.abs(latest - base) / base) * 100 * 1e6) / 1e6;
+
 const CURRENCIES = ["USD", "CNY"] as const;
 
 export async function autoRepriceAfterRates(repo: AdminProductsRepo, settings: RepriceSettings, now: Date): Promise<AutoRepriceOutcome> {
@@ -37,7 +40,7 @@ export async function autoRepriceAfterRates(repo: AdminProductsRepo, settings: R
       if (!baseByDate.has(date)) baseByDate.set(date, (await repo.rateOnOrBefore(currency, date))?.rate ?? null);
       const base = baseByDate.get(date) ?? null;
       // Нет курса на дату расчёта цены (цена старше всех курсов) — опорной точки нет, пересчитываем.
-      if (base === null || base <= 0 || (Math.abs(latest.rate - base) / base) * 100 >= settings.reprice_threshold) { hit = true; break; }
+      if (base === null || base <= 0 || shiftPercent(latest.rate, base) >= settings.reprice_threshold) { hit = true; break; }
     }
     if (hit) triggered.push(currency);
   }

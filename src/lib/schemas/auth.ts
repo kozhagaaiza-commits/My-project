@@ -25,10 +25,10 @@ export const updatePasswordBody = z.object({
   password_repeat: z.string().min(1, "Повторите пароль"),
 }).refine((v) => v.password === v.password_repeat, { path: ["password_repeat"], message: "Пароли не совпадают" });
 
-/** Профиль: обновляются только full_name и phone (колоночные права 2.1). Пустой телефон → null. */
+/** Профиль: обновляются только full_name и phone (колоночные права 2.1). Пустой телефон допустим («» → null при записи). */
 export const profileBody = z.object({
   full_name: fullName,
-  phone: z.union([z.literal("").transform(() => null), phoneRu]),
+  phone: z.union([z.literal(""), phoneRu]),
 });
 
 export type LoginValues = z.input<typeof loginBody>;

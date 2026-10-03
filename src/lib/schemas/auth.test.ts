@@ -22,8 +22,8 @@ describe("схемы аутентификации", () => {
     assert.equal(res.success && res.data.email, "a@b.ru");
     assert.equal(loginBody.safeParse({ email: "a@b.ru", password: "" }).success, false);
   });
-  it("профиль: пустой телефон → null, телефон нормализуется", () => {
-    assert.equal(profileBody.parse({ full_name: "Артём", phone: "" }).phone, null);
+  it("профиль: пустой телефон допустим, телефон нормализуется", () => {
+    assert.equal(profileBody.parse({ full_name: "Артём", phone: "" }).phone, "");
     assert.equal(profileBody.parse({ full_name: "Артём", phone: "+7 (916) 555-12-34" }).phone, "+79165551234");
     assert.equal(profileBody.safeParse({ full_name: "А", phone: "" }).success, false);
   });

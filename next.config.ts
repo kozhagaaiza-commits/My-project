@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import { emptyLegalConstants } from "./src/lib/legal";
+import { securityHeaders } from "./src/lib/security-headers";
 
 // Блок 4 «Статичные страницы»: сборка падает, пока реквизиты продавца в src/lib/legal.ts пусты.
 // Обход LEGAL_CHECK=skip (отступление, Приложение A) — только вне production-деплоя (VERCEL_ENV !== "production").
@@ -16,6 +17,11 @@ function assertLegalFilled(phase: string): void {
 const nextConfig: NextConfig = {
   // Фото из Supabase Storage отдаются как есть (Блок 4.0 / CLAUDE.md: images.unoptimized).
   images: { unoptimized: true },
+  // Блок 5.10: заголовки безопасности + CSP (src/lib/security-headers.ts).
+  async headers() {
+    const headers = securityHeaders({ production: process.env.NODE_ENV === "production", supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL });
+    return [{ source: "/(.*)", headers }];
+  },
 };
 
 const withLegalCheck = (phase: string): NextConfig => {

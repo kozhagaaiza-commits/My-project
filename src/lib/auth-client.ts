@@ -11,7 +11,7 @@ export type AuthFailure =
   | "invalid_credentials" | "email_not_confirmed" | "already_registered" | "rate_limited"
   | "link_expired" | "same_password" | "weak_password" | "unknown";
 
-export type AuthResult<T = Record<string, never>> = ({ ok: true } & T) | { ok: false; reason: AuthFailure };
+export type AuthResult<T extends object = object> = ({ ok: true } & T) | { ok: false; reason: AuthFailure };
 
 export interface AuthGateway {
   signIn(email: string, password: string): Promise<AuthResult<{ role: string | null }>>;
@@ -47,7 +47,7 @@ const callbackUrl = (next: string) => `${siteUrl()}/auth/callback?next=${encodeU
 function realGateway(): AuthGateway {
   const supabase = createClient();
   const fail = (err: AuthErrorLike): { ok: false; reason: AuthFailure } => ({ ok: false, reason: classifyAuthError(err) });
-  const guard = async <T>(run: () => Promise<AuthResult<T>>): Promise<AuthResult<T>> => {
+  const guard = async <T extends object>(run: () => Promise<AuthResult<T>>): Promise<AuthResult<T>> => {
     try {
       return await run();
     } catch {
@@ -99,7 +99,7 @@ function realGateway(): AuthGateway {
 function fixtureGateway(): AuthGateway {
   const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 500));
   const has = (email: string, word: string) => email.toLowerCase().split("@")[0].includes(word);
-  const common = async (email: string): Promise<AuthResult | null> => {
+  const common = async (email: string): Promise<{ ok: false; reason: AuthFailure } | null> => {
     await pause();
     if (has(email, "limit")) return { ok: false, reason: "rate_limited" };
     return null;

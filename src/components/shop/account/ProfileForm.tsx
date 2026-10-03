@@ -36,18 +36,19 @@ export function ProfileForm({ userId, fullName, phone, fixtures }: ProfileFormPr
   async function onSubmit(values: ProfileValues) {
     setFailed(false);
     const parsed = profileBody.parse(values);
+    const phoneValue = parsed.phone === "" ? null : parsed.phone;
     try {
       if (fixtures) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       } else {
-        const { error } = await createClient().from("profiles").update({ full_name: parsed.full_name, phone: parsed.phone }).eq("id", userId);
+        const { error } = await createClient().from("profiles").update({ full_name: parsed.full_name, phone: phoneValue }).eq("id", userId);
         if (error) throw error;
       }
     } catch {
       setFailed(true);
       return;
     }
-    form.reset({ full_name: parsed.full_name, phone: phoneForField(parsed.phone) });
+    form.reset({ full_name: parsed.full_name, phone: phoneForField(phoneValue) });
     toast.success("Профиль сохранён");
     router.refresh();
   }
