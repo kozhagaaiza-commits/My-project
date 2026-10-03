@@ -10,9 +10,9 @@ import {
 const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
-const HTML = new TextEncoder().encode("<html><script>alert(1)</script></html>");
+const HTML = new Uint8Array(new TextEncoder().encode("<html><script>alert(1)</script></html>"));
 
-function upload(bytes: Uint8Array, type: string, alt?: string, name = "photo.webp") {
+function upload(bytes: Uint8Array<ArrayBuffer>, type: string, alt?: string, name = "photo.webp") {
   const form = new FormData();
   form.set("file", new File([bytes], name, { type }));
   if (alt !== undefined) form.set("alt", alt);

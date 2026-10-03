@@ -1,6 +1,7 @@
 import { formatRub } from "@/lib/money";
 import { orderStatusLabel } from "@/lib/order-labels";
 import { allowedTransitions } from "@/lib/order-status";
+import { refundTotals } from "@/lib/payments/refundable";
 import { adminDeliveryLabel, adminVehicleLabel, type VehicleEmbed } from "./labels";
 import type { AdminOrderDetail, AdminOrderListItem } from "./order-types";
 import { toIsoUtc } from "./timestamps";
@@ -25,12 +26,16 @@ export function buildAdminOrderListItem(r: ListRow): AdminOrderListItem {
   };
 }
 
-/** Суммы по заказу (US-008, BR-16; логика POST …/refund, шаг 1): refundable = оплачено − возвраты pending|succeeded. */
-export function orderMoney(payments: Array<{ status: string; amount: number }>, refunds: Array<{ status: string; amount: number }>) {
-  const paid = payments.filter((p) => p.status === "succeeded").reduce((s, p) => s + p.amount, 0);
-  const refunded = refunds.filter((r) => r.status === "succeeded").reduce((s, r) => s + r.amount, 0);
-  const reserved = refunds.filter((r) => r.status === "pending" || r.status === "succeeded").reduce((s, r) => s + r.amount, 0);
-  return { paid_amount: paid, refunded_amount: refunded, refundable_amount: Math.max(paid - reserved, 0) };
+/**
+ * Суммы по заказу — та же функция, что проверяет POST …/refund (src/lib/payments/refundable.ts, BR-16): сумма по умолчанию
+ * в Dialog возврата совпадает с проверкой сервера. refundable_amount — максимум одного возврата (по одному платежу).
+ */
+export function orderMoney(
+  payments: Array<{ id: string; status: string; amount: number }>,
+  refunds: Array<{ payment_id: string; status: string; amount: number }>,
+) {
+  const t = refundTotals(payments, refunds);
+  return { paid_amount: t.paid_amount, refunded_amount: t.refunded_amount, refundable_amount: t.refundable_amount };
 }
 
 export interface DetailInput {
@@ -48,9 +53,9 @@ export interface DetailInput {
     product_id: string | null; title_snapshot: string; sku_snapshot: string; specs_snapshot: Record<string, unknown>;
     unit_price: number; quantity: number; line_total: number;
   }>;
-  payments: Array<{ yookassa_payment_id: string; status: string; amount: number; payment_method_type: string | null; created_at: string }>;
+  payments: Array<{ id: string; yookassa_payment_id: string; status: string; amount: number; payment_method_type: string | null; created_at: string }>;
   refunds: Array<{
-    id: string; yookassa_refund_id: string | null; status: string; amount: number; reason: string; restock: boolean;
+    id: string; payment_id: string; yookassa_refund_id: string | null; status: string; amount: number; reason: string; restock: boolean;
     error_message: string | null; created_at: string;
   }>;
   history: Array<{ from_status: string | null; to_status: string; note: string | null; changed_by_name: string | null; created_at: string }>;

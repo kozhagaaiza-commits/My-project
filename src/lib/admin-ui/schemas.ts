@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { formatRub, rubStringToKopecks } from "@/lib/money";
 
-// TODO(frontend-developer): заменить на схемы из src/lib/schemas/admin-* (orderStatusChangeBody, refundBody,
-// settingsPatchBody), когда backend-engineer их создаст. Здесь — форменные (строковые) версии тех же правил Чертежа
-// (Блок 3, 5.1): поля ввода — строки, в числа/копейки переводятся при отправке.
+// Форменные (строковые) версии схем backend (src/lib/schemas/admin-*): поля ввода — строки, в числа/копейки
+// переводятся при отправке. Тексты ошибок и правила причины берутся из backend-схем, чтобы не расходились.
+import { COURIER_NOTE_REQUIRED_MESSAGE, TRACKING_REQUIRED_MESSAGE } from "@/lib/schemas/admin-orders";
+import { refundBody } from "@/lib/schemas/admin-refund";
+import { MARKUP_MULTIPLIER_MESSAGE } from "@/lib/schemas/admin-settings";
 
 export const TRACKING_RE = /^[A-Za-z0-9-]{5,40}$/;
 export const TRACKING_MESSAGE = "Трек-номер: 5–40 символов, латиница, цифры и дефис";
@@ -26,9 +28,9 @@ export const shipFormSchema = (needsTracking: boolean) =>
     })
     .superRefine((v, ctx) => {
       if (needsTracking && v.tracking_number === "") {
-        ctx.addIssue({ code: "custom", path: ["tracking_number"], message: "Укажите трек-номер СДЭК" });
+        ctx.addIssue({ code: "custom", path: ["tracking_number"], message: TRACKING_REQUIRED_MESSAGE });
       } else if (!needsTracking && v.courier_note === "") {
-        ctx.addIssue({ code: "custom", path: ["courier_note"], message: "Укажите заметку для курьера" });
+        ctx.addIssue({ code: "custom", path: ["courier_note"], message: COURIER_NOTE_REQUIRED_MESSAGE });
       }
       if (v.tracking_number !== "" && !TRACKING_RE.test(v.tracking_number)) {
         ctx.addIssue({ code: "custom", path: ["tracking_number"], message: TRACKING_MESSAGE });
@@ -53,8 +55,8 @@ export const refundFormSchema = (maxKopecks: number) =>
         if (kopecks <= 0) ctx.addIssue({ code: "custom", message: "Сумма должна быть больше нуля" });
         else if (kopecks > maxKopecks) ctx.addIssue({ code: "custom", message: `Максимум к возврату: ${formatRub(maxKopecks)}` });
       }),
-    reason: z.string().trim().min(5, "Минимум 5 символов").max(500, "Не больше 500 символов"),
-    restock: z.boolean(),
+    reason: refundBody.shape.reason, // та же причина, что на сервере (5–500, без зарезервированной)
+    restock: refundBody.shape.restock,
   });
 export type RefundFormValues = z.infer<ReturnType<typeof refundFormSchema>>;
 
@@ -66,7 +68,7 @@ export const settingsFormSchema = z.object({
     .string()
     .trim()
     .refine((v) => /^\d(?:[.,]\d{1,2})?$/.test(v) && Number(normalizeDecimal(v)) >= 1 && Number(normalizeDecimal(v)) <= 5, {
-      message: "Множитель от 1.00 до 5.00",
+      message: MARKUP_MULTIPLIER_MESSAGE,
     }),
   price_rounding_rub: z.enum(ROUNDING_OPTIONS),
   auto_reprice: z.boolean(),

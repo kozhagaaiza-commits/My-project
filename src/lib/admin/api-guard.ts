@@ -88,7 +88,7 @@ export async function authorizeAdminApi(request: Request, opts: AdminApiOptions 
   return authorizeAdminApiWith(defaultAdminApiDeps, request, opts);
 }
 
-/** Короткая форма: null — запрос от администратора, иначе готовый 401 / 403 / 429 (совместима с admin-auth-shim). */
+/** Короткая форма: null — запрос от администратора, иначе готовый 401 / 403 / 429 (контракт requireAdmin(request) обработчиков exchange-rates и товаров). */
 export async function requireAdminApi(request: Request, opts: AdminApiOptions = {}): Promise<Response | null> {
   const auth = await authorizeAdminApi(request, opts);
   return auth.ok ? null : auth.response;

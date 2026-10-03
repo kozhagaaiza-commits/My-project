@@ -49,7 +49,7 @@ describe("admin-ui schemas", () => {
     const base = { reason: "Клиент отказался", restock: true };
     assert.equal(schema.safeParse({ ...base, amount: "133700.00" }).success, true);
     assert.equal(schema.safeParse({ ...base, amount: "133 700,5" }).success, false);
-    assert.equal(firstMessage(schema.safeParse({ ...base, amount: "133700.01" })).replace(/\s/g, " "), "Максимум к возврату: 133 700 ₽");
+    assert.equal((firstMessage(schema.safeParse({ ...base, amount: "133700.01" })) ?? "").replace(/\s/g, " "), "Максимум к возврату: 133 700 ₽");
     assert.equal(firstMessage(schema.safeParse({ amount: "100", reason: "да", restock: false })), "Минимум 5 символов");
   });
 

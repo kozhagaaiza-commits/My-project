@@ -3,7 +3,9 @@ import { authorizeAdminApi } from "@/lib/admin/api-guard";
 import { loadAdminOrderDetail } from "@/lib/admin/orders-db";
 import { selectOrderForChange, updateOrderMeta } from "@/lib/admin/orders-write";
 import { rpcCancelExpiredOrders } from "@/lib/orders/db";
+import { getDefaultPaymentsDeps } from "@/lib/payments/deps";
 import { reconcileOrderPayments } from "@/lib/payments/reconcile";
+import { refreshOrderRefunds } from "@/lib/payments/refund-refresh";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createGetAdminOrderHandler, createPatchAdminOrderHandler } from "./handler";
 
@@ -17,6 +19,7 @@ const getHandler = createGetAdminOrderHandler({
   cancelExpiredOrders: () => rpcCancelExpiredOrders(createAdminClient()),
   loadDetail: (orderId) => loadAdminOrderDetail(createAdminClient(), orderId),
   reconcileOrderPayments,
+  refreshOrderRefunds: async (orderId) => refreshOrderRefunds(await getDefaultPaymentsDeps(), orderId),
   continueAfterResponse: (task) => after(() => task),
 });
 

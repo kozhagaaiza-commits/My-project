@@ -9,7 +9,8 @@ import { adminOrderParams, orderMetaPatchBody } from "@/lib/schemas/admin-orders
 
 // GET /api/admin/orders/[id] и PATCH /api/admin/orders/[id] (Блок 3). Зависимости внедряются (route.ts — реальные).
 // GET: admin → id (не uuid → 404) → ленивая отмена броней → карточка → для pending_payment / cancelled сверка платежей
-//      (5.9.1, A35; бюджет ожидания, остаток — после ответа) и повторное чтение → { data }.
+//      (5.9.1, A35) и доводка pending-возвратов (бюджет ожидания, остаток — после ответа) → повторное чтение → { data }.
+//      Суммы — refundTotals() (src/lib/payments/refundable.ts), как в проверке POST …/refund.
 // PATCH: admin + Origin → id → Zod тела → patchOrderMeta (оптимистическая блокировка) → { data }.
 
 export interface OrderRouteContext {
@@ -22,6 +23,8 @@ export interface GetAdminOrderDeps {
   loadDetail(orderId: string): Promise<AdminOrderDetailData | null>;
   /** src/lib/payments/reconcile.ts — не бросает (страховка всё равно есть). */
   reconcileOrderPayments(orderId: string): Promise<unknown>;
+  /** refreshOrderRefunds (src/lib/payments/refund-refresh.ts): довести pending-возвраты до итогового статуса в ЮKassa. */
+  refreshOrderRefunds?(orderId: string): Promise<unknown>;
   /** Бюджет ожидания сверки, мс. */
   reconcileBudgetMs?: number;
   /** Сверка не уложилась в бюджет: доделать после ответа (after()). */
@@ -57,10 +60,19 @@ async function handleGet(request: Request, routeCtx: OrderRouteContext, deps: Ge
   let data = await deps.loadDetail(orderId);
   if (data === null) return adminOrderNotFound();
 
+  // Сверка оплаты (pending_payment / cancelled) и доводка pending-возвратов — до расчёта сумм, общий бюджет ожидания.
+  const jobs: Array<{ scope: string; run: () => Promise<unknown> }> = [];
   if (RECONCILE_STATUSES.has(data.order.status)) {
-    const task = Promise.resolve()
-      .then(() => deps.reconcileOrderPayments(orderId))
-      .catch((err: unknown) => { console.error({ scope: "admin.orders.get.reconcile", orderId, err }); });
+    jobs.push({ scope: "admin.orders.get.reconcile", run: () => deps.reconcileOrderPayments(orderId) });
+  }
+  const refresh = deps.refreshOrderRefunds;
+  if (refresh && data.refunds.some((r) => r.status === "pending")) {
+    jobs.push({ scope: "admin.orders.get.refunds", run: () => refresh(orderId) });
+  }
+  if (jobs.length > 0) {
+    const task = Promise.all(jobs.map((j) => Promise.resolve()
+      .then(j.run)
+      .catch((err: unknown) => { console.error({ scope: j.scope, orderId, err }); })));
     const budget = deps.reconcileBudgetMs ?? ADMIN_RECONCILE_BUDGET_MS;
     if (await settlesWithin(task, budget)) {
       data = (await deps.loadDetail(orderId)) ?? data;

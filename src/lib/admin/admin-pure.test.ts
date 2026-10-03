@@ -58,16 +58,23 @@ describe("подписи", () => {
   });
 });
 
-describe("orderMoney (BR-16)", () => {
+describe("orderMoney = refundTotals из payments/refundable.ts (BR-16)", () => {
+  it("один платёж: оплачено − возвраты pending|succeeded (как в Чертеже)", () => {
+    assert.deepEqual(orderMoney([{ id: "p1", status: "succeeded", amount: 1000 }], [
+      { payment_id: "p1", status: "succeeded", amount: 300 }, { payment_id: "p1", status: "pending", amount: 200 },
+      { payment_id: "p1", status: "failed", amount: 400 },
+    ]), { paid_amount: 1000, refunded_amount: 300, refundable_amount: 500 });
+  });
+
   it("двойная оплата с автовозвратом: refundable = одна оплата", () => {
     assert.deepEqual(orderMoney(
-      [{ status: "succeeded", amount: 100 }, { status: "succeeded", amount: 100 }, { status: "canceled", amount: 100 }],
-      [{ status: "succeeded", amount: 100 }],
+      [{ id: "p1", status: "succeeded", amount: 100 }, { id: "p2", status: "succeeded", amount: 100 }, { id: "p3", status: "canceled", amount: 100 }],
+      [{ payment_id: "p2", status: "succeeded", amount: 100 }],
     ), { paid_amount: 200, refunded_amount: 100, refundable_amount: 100 });
   });
 
   it("не уходит в минус", () => {
-    assert.equal(orderMoney([], [{ status: "pending", amount: 5 }]).refundable_amount, 0);
+    assert.equal(orderMoney([], [{ payment_id: "p1", status: "pending", amount: 5 }]).refundable_amount, 0);
   });
 });
 

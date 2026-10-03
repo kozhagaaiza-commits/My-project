@@ -1,19 +1,10 @@
 import { formatRub } from "@/lib/money";
 import { PRICE_ROUNDING_RUB } from "@/lib/config";
 import type { AdminSettings, PurchaseCurrency } from "@/lib/admin-products-ui/types";
+import { computeAutoPrice } from "@/lib/pricing";
 import { minorToInput } from "@/lib/admin-products-ui/money-input";
 
-/**
- * TODO(backend-engineer, День 6): когда появится src/lib/pricing.ts — импортировать computeAutoPrice оттуда.
- * Локальная копия формулы из Чертежа (Блок 5.4), только для превью в форме: сервер всё равно пересчитает.
- * Закупка в минимальных единицах валюты (80000 = $800.00), rate — рублей за единицу валюты (RUB = 1),
- * округление вверх до roundingRub рублей. Возвращает копейки.
- */
-export function computeAutoPrice(purchaseCostMinor: number, rate: number, multiplier: number, roundingRub: number): number {
-  const rub = (purchaseCostMinor / 100) * rate * multiplier;
-  const rounded = Math.ceil(Math.round(rub * 100) / 100 / roundingRub) * roundingRub;
-  return rounded * 100;
-}
+export { computeAutoPrice };
 
 export type PricePreview =
   | { kind: "ok"; priceKopecks: number; line: string }

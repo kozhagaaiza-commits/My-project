@@ -122,9 +122,10 @@ export interface AdminMetaPatchResult {
 export interface AdminRefundResult {
   refund_id: string;
   yookassa_refund_id: string;
-  status: string;
+  status: "succeeded" | "pending";
   amount_formatted: string;
   order_status: OrderStatus;
+  restocked?: boolean;
 }
 
 export interface AdminSummary {

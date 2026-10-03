@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 /** «Позиции»: таблица с specs (mono) для сверки инженером. */
 export function OrderItemsCard({ order, className }: { order: AdminOrderDetail; className?: string }) {
   return (
-    <Card className={cn("gap-4 p-5", className)}>
+    <Card className={cn("min-w-0 gap-4 p-5", className)}>
       <h2 className="text-lg font-semibold">Позиции</h2>
       <Table className="min-w-[34rem]">
         <TableHeader>

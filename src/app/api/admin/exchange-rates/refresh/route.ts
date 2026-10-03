@@ -1,4 +1,4 @@
-import { requireAdminApi } from "@/lib/admin-auth-shim"; // → "@/lib/admin/guard", когда backend A добавит requireAdminApi
+import { requireAdminApi } from "@/lib/admin/api-guard";
 import { refreshRates } from "@/lib/cbr";
 import { createExchangeRatesRepo } from "@/lib/cbr-repo";
 import { createAdminClient } from "@/lib/supabase/admin";

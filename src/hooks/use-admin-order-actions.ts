@@ -33,6 +33,8 @@ interface CallOptions {
   /** Коды ошибок, которые вызывающий показывает inline — без toast. */
   inline?: readonly string[];
   success?: string;
+  /** Таймаут запроса, мс (возврат ждёт ответа ЮKassa). */
+  timeoutMs?: number;
 }
 
 /**
@@ -58,7 +60,7 @@ export function useAdminOrderActions(order: AdminOrderDetail, reload: () => void
       const task = chain.current.then(async (): Promise<ApiResult<T>> => {
         setPending((n) => n + 1);
         try {
-          const res = await adminRequest<T>(method, `/api/admin/orders/${order.id}${path}`, body(stamp.current));
+          const res = await adminRequest<T>(method, `/api/admin/orders/${order.id}${path}`, body(stamp.current), options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined);
           if (res.ok) {
             if (res.data.updated_at) stamp.current = res.data.updated_at;
             if (options.success) toast.success(options.success);
@@ -99,7 +101,7 @@ export function useAdminOrderActions(order: AdminOrderDetail, reload: () => void
 
   const refund = useCallback(
     (input: RefundInput, options?: CallOptions) =>
-      call<AdminRefundResult & { updated_at?: string }>("POST", "/refund", () => input, options),
+      call<AdminRefundResult & { updated_at?: string }>("POST", "/refund", () => input, { timeoutMs: 65_000, ...options }),
     [call],
   );
 

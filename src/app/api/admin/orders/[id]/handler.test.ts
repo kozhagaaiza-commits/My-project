@@ -36,7 +36,7 @@ function detailData(over: Partial<AdminOrderDetailData["order"]> = {}): AdminOrd
       unit_price: 13370000, quantity: 1, line_total: 13370000,
     }],
     payments: [{
-      yookassa_payment_id: "30a8d2c1-000f-5000-9000-1b6c4d2e8f10", status: "succeeded", amount: 13370000,
+      id: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", yookassa_payment_id: "30a8d2c1-000f-5000-9000-1b6c4d2e8f10", status: "succeeded", amount: 13370000,
       payment_method_type: "sbp", created_at: "2026-10-01T12:31:02+00:00",
     }],
     refunds: [],
@@ -109,9 +109,9 @@ describe("GET /api/admin/orders/[id]", () => {
   it("суммы: частичный и pending-возврат уменьшают refundable; refunded_amount — только succeeded; failed не считается", async () => {
     const data = detailData();
     data.refunds = [
-      { id: "r1", yookassa_refund_id: "y1", status: "succeeded", amount: 3340000, reason: "Брак одного диска", restock: false, error_message: null, created_at: "2026-10-03T09:00:00+00:00" },
-      { id: "r2", yookassa_refund_id: null, status: "pending", amount: 1000000, reason: "Компенсация", restock: false, error_message: null, created_at: "2026-10-03T09:10:00+00:00" },
-      { id: "r3", yookassa_refund_id: null, status: "failed", amount: 5000000, reason: "Ошибка", restock: false, error_message: "Недостаточно средств", created_at: "2026-10-03T09:20:00+00:00" },
+      { id: "r1", payment_id: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", yookassa_refund_id: "y1", status: "succeeded", amount: 3340000, reason: "Брак одного диска", restock: false, error_message: null, created_at: "2026-10-03T09:00:00+00:00" },
+      { id: "r2", payment_id: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", yookassa_refund_id: null, status: "pending", amount: 1000000, reason: "Компенсация", restock: false, error_message: null, created_at: "2026-10-03T09:10:00+00:00" },
+      { id: "r3", payment_id: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", yookassa_refund_id: null, status: "failed", amount: 5000000, reason: "Ошибка", restock: false, error_message: "Недостаточно средств", created_at: "2026-10-03T09:20:00+00:00" },
     ];
     const d = (JSON.parse(fmt(await (await setupGet({}, data).call()).text())) as { data: Record<string, unknown> }).data;
     assert.equal(d.paid_amount, 13370000);
@@ -140,6 +140,17 @@ describe("GET /api/admin/orders/[id]", () => {
     assert.equal((await call()).status, 200);
     assert.ok(continued);
     assert.deepEqual(calls, ["auth", "cancel", "load"]);
+  });
+
+  it("pending-возврат: refreshOrderRefunds до расчёта сумм и повторное чтение; без pending — не вызывается", async () => {
+    const data = detailData();
+    data.refunds = [{ id: "r2", payment_id: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d", yookassa_refund_id: null, status: "pending", amount: 1000000, reason: "Компенсация", restock: false, error_message: null, created_at: "2026-10-03T09:10:00+00:00" }];
+    const a = setupGet({ refreshOrderRefunds: async () => { a.calls.push("refunds"); return {}; } }, data);
+    assert.equal((await a.call()).status, 200);
+    assert.deepEqual(a.calls, ["auth", "cancel", "load", "refunds", "load"]);
+    const b = setupGet({ refreshOrderRefunds: async () => { b.calls.push("refunds"); return {}; } });
+    await b.call();
+    assert.deepEqual(b.calls, ["auth", "cancel", "load"]);
   });
 
   it("сбой ленивой отмены не роняет карточку", async () => {

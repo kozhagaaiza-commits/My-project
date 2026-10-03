@@ -96,8 +96,8 @@ export const adminOrderDetailRow = z.object({
 export type AdminOrderDetailRow = z.infer<typeof adminOrderDetailRow>;
 
 export const ADMIN_ORDER_ITEM_COLUMNS = "product_id,title_snapshot,sku_snapshot,specs_snapshot,unit_price,quantity,line_total";
-export const ADMIN_PAYMENT_COLUMNS = "yookassa_payment_id,status,amount,payment_method_type,created_at";
-export const ADMIN_REFUND_COLUMNS = "id,yookassa_refund_id,status,amount,reason,restock,error_message,created_at";
+export const ADMIN_PAYMENT_COLUMNS = "id,yookassa_payment_id,status,amount,payment_method_type,created_at";
+export const ADMIN_REFUND_COLUMNS = "id,payment_id,yookassa_refund_id,status,amount,reason,restock,error_message,created_at";
 export const ADMIN_HISTORY_COLUMNS = "from_status,to_status,note,changed_by,created_at";
 
 const itemRow = z.object({
@@ -106,11 +106,11 @@ const itemRow = z.object({
   line_total: z.number().int(),
 });
 const paymentRow = z.object({
-  yookassa_payment_id: z.string(), status: z.string(), amount: z.number().int(),
+  id: z.string(), yookassa_payment_id: z.string(), status: z.string(), amount: z.number().int(),
   payment_method_type: z.string().nullable(), created_at: ts,
 });
 const refundRow = z.object({
-  id: z.string(), yookassa_refund_id: z.string().nullable(), status: z.string(), amount: z.number().int(),
+  id: z.string(), payment_id: z.string(), yookassa_refund_id: z.string().nullable(), status: z.string(), amount: z.number().int(),
   reason: z.string(), restock: z.boolean(), error_message: z.string().nullable(), created_at: ts,
 });
 const historyRow = z.object({

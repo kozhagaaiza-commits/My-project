@@ -43,16 +43,22 @@ export function RefundDialog({ order, open, onOpenChange, refund }: RefundDialog
   });
   const submitting = form.formState.isSubmitting;
   const kopecks = toKopecks(useWatch({ control: form.control, name: "amount" }));
+  // «Вернуть товар на склад» — только stock, не delivered и при полной сумме к возврату (BR-17).
+  const canRestock = stock && order.status !== "delivered" && kopecks === order.refundable_amount;
 
   async function onSubmit(values: RefundFormValues) {
     const amount = toKopecks(values.amount);
     if (amount === null) return;
     const res = await refund(
-      { amount, reason: values.reason, restock: stock && values.restock },
+      { amount, reason: values.reason, restock: canRestock && values.restock },
       { inline: ["VALIDATION_ERROR", "REFUND_EXCEEDS_PAID"] },
     );
     if (res.ok) {
-      toast.success(`Возврат ${res.data.amount_formatted} оформлен`);
+      toast.success(
+        res.data.status === "pending"
+          ? "Возврат обрабатывается ЮKassa"
+          : `Возврат ${res.data.amount_formatted} оформлен`,
+      );
       onOpenChange(false);
     } else if (res.code === "REFUND_EXCEEDS_PAID") {
       form.setError("amount", { message: res.message }); // «Максимум к возврату: 133 700 ₽»
@@ -96,7 +102,7 @@ export function RefundDialog({ order, open, onOpenChange, refund }: RefundDialog
                 </FormItem>
               )}
             />
-            {stock && (
+            {canRestock && (
               <FormField
                 control={form.control}
                 name="restock"

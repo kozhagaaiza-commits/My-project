@@ -1,5 +1,4 @@
-// TODO(День 6): заменить на `import { authorizeAdminApi } from "@/lib/admin/guard";` и удалить src/lib/payments/admin-auth.ts.
-import { authorizeAdminApi } from "@/lib/payments/admin-auth";
+import { authorizeAdminApi } from "@/lib/admin/api-guard";
 import { createAdminRefund } from "@/lib/payments/admin-refund";
 import { createAdminRefundHandler } from "./handler";
 
