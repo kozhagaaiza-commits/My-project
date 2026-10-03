@@ -11,6 +11,9 @@ const handler = createYookassaWebhookHandler({
   processRefund: processRefundObject,
 });
 
+// Повторный GET и несколько вызовов createRefund (повторная оплата) могут занять больше лимита по умолчанию.
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   return handler(request);
 }
