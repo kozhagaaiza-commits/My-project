@@ -41,6 +41,7 @@ const viewData = (status: OrderAccessRow["status"] = "paid"): OrderViewData => (
   items: [{ title: "M-01", quantity: 1, unit_price: 13370000, line_total: 13370000, product_slug: "m-01" }],
   history: [],
   refunded_amount: 0,
+  last_payment: null,
 });
 
 function setup(over: Partial<GetOrderViewDeps> & { row?: OrderAccessRow | null; data?: OrderViewData | null } = {}) {

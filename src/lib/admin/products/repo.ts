@@ -90,6 +90,11 @@ export interface AdminProductsRepo {
   listAutoPriced(): Promise<AutoPriceRow[]>;
   /** update price, price_updated_at where id and pricing_mode = 'auto' and price = old; false — запись изменилась. */
   updateAutoPrice(id: string, oldPrice: number, newPrice: number, at: string): Promise<boolean>;
+  /**
+   * Цена по новому курсу не изменилась: update price_updated_at where id in ids and pricing_mode = 'auto' — цена
+   * считается актуальной на этот курс, и автопересчёт не срабатывает на неё повторно каждый день. Число обновлённых строк.
+   */
+  touchAutoPrices(ids: string[], at: string): Promise<number>;
 }
 
 /** Storage бакета product-images через сессионный клиент (политики 2.15 — только admin). */

@@ -240,6 +240,19 @@ describe("PATCH /api/admin/orders/[id]", () => {
     assert.equal(seen.length, 1);
   });
 
+  it("notifyDeliveryChanged не вызывается в pending_payment/cancelled/refunded и при одной лишь очистке заметки", async () => {
+    let n = 0;
+    const notify = async () => { n++; return true; };
+    for (const status of ["pending_payment", "cancelled", "refunded"] as const) {
+      const s = setupPatch([orderRow({ kind: "preorder", status, expected_ready_at: "2026-11-01" })], { notifyDeliveryChanged: notify });
+      const res = await s.call({ expected_ready_at: "2026-11-12", updated_at: API_UPDATED_AT });
+      assert.equal(((await json(res)).data as Record<string, unknown>).customer_notified, false, status);
+    }
+    const clear = setupPatch([orderRow({ kind: "preorder", status: "ordered_from_supplier", expected_ready_at: "2026-11-01", customer_visible_note: "Задержка" })], { notifyDeliveryChanged: notify });
+    await clear.call({ customer_visible_note: "", updated_at: API_UPDATED_AT });
+    assert.equal(n, 0);
+  });
+
   it("notifyDeliveryChanged получает статус заказа и новые срок/заметку; не поставлено в очередь → false; исключение → 200", async () => {
     const seen: Array<Record<string, unknown>> = [];
     const a = setupPatch(undefined, { notifyDeliveryChanged: async (p) => { seen.push({ ...p }); return true; } });

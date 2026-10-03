@@ -1,13 +1,16 @@
 import type { NextConfig } from "next";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
-import { emptyLegalConstants } from "./src/lib/legal";
+import { emptyLegalConstants, legalFormatErrors } from "./src/lib/legal";
 import { securityHeaders } from "./src/lib/security-headers";
 
 // Блок 4 «Статичные страницы»: сборка падает, пока реквизиты продавца в src/lib/legal.ts пусты.
 // Обход LEGAL_CHECK=skip (отступление, Приложение A) — только вне production-деплоя (VERCEL_ENV !== "production").
+// Формат заполненных значений (ИНН — 10 или 12 цифр, email) проверяется всегда: обход на него не действует.
 function assertLegalFilled(phase: string): void {
   // `next typegen` тоже идёт в фазе production-build — проверяем только настоящую `next build`.
   if (phase !== PHASE_PRODUCTION_BUILD || !process.argv.includes("build")) return;
+  const invalid = legalFormatErrors();
+  if (invalid.length > 0) throw new Error(`src/lib/legal.ts: неверный формат реквизитов: ${invalid.join("; ")}`);
   const empty = emptyLegalConstants();
   if (empty.length === 0) return;
   if (process.env.LEGAL_CHECK === "skip" && process.env.VERCEL_ENV !== "production") return;

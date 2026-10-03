@@ -41,8 +41,11 @@ export function ProfileForm({ userId, fullName, phone, fixtures }: ProfileFormPr
       if (fixtures) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       } else {
-        const { error } = await createClient().from("profiles").update({ full_name: parsed.full_name, phone: phoneValue }).eq("id", userId);
+        const { data, error } = await createClient().from("profiles")
+          .update({ full_name: parsed.full_name, phone: phoneValue }).eq("id", userId).select("id");
         if (error) throw error;
+        // RLS/колоночные права молча отсекают update: 0 строк — профиль не сохранён.
+        if (!data || data.length === 0) throw new Error("profiles.update: 0 rows");
       }
     } catch {
       setFailed(true);

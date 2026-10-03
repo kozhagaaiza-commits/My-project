@@ -54,6 +54,7 @@ function leakyData(): OrderViewData {
     items: [{ title: "M-01", quantity: 1, unit_price: 13370000, line_total: 13370000, product_slug: "m-01" }],
     history: [{ to_status: "paid", created_at: "2026-10-01T12:34:10+00:00", note: "SECRET-HISTORY-NOTE" } as OrderViewData["history"][number]],
     refunded_amount: 0,
+    last_payment: { status: "canceled", cancellation_reason: "SECRET-YK-REASON" },
   };
 }
 

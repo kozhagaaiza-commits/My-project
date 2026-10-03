@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/catalog/db";
 import { ORDER_STATUSES } from "./db";
 import { DbError } from "./errors";
+import type { LastPaymentRecord } from "./payment-failure";
 import type { OrderHistoryEntry, OrderViewData, OrderViewItemRecord, OrderViewOrder } from "./view";
 
 // Чтение заказа для страницы статуса (Блок 3: GET /api/orders/[number]) через service-role — ТОЛЬКО после проверки
@@ -11,7 +12,9 @@ import type { OrderHistoryEntry, OrderViewData, OrderViewItemRecord, OrderViewOr
 //  - из orders НИКОГДА не читаются admin_note, attention_reason, needs_attention, public_token_hash, client_request_id;
 //    telegram_chat_id читается только чтобы вернуть факт подписки (boolean), сам id наружу не выходит;
 //  - из order_status_history — только to_status и created_at (note и changed_by скрыты);
-//  - из refunds — только amount успешных возвратов; из products — только id и slug.
+//  - из refunds — только amount успешных возвратов; из products — только id и slug;
+//  - из payments — только status и cancellation_reason последнего платежа (raw, суммы и id ЮKassa не читаются);
+//    наружу код причины не выходит — buildOrderView превращает его в текст Edge Case 35/37.
 // Каждый ответ PostgREST проверяется Zod; ошибка БД → DbError (→ 500). Клиент передаёт вызывающий код.
 
 export const ORDER_VIEW_COLUMNS =
@@ -22,6 +25,7 @@ export const ORDER_VIEW_ITEM_COLUMNS = "title_snapshot,quantity,unit_price,line_
 export const ORDER_VIEW_HISTORY_COLUMNS = "to_status,created_at";
 export const ORDER_VIEW_REFUND_COLUMNS = "amount";
 export const ORDER_VIEW_PRODUCT_COLUMNS = "id,slug";
+export const ORDER_VIEW_PAYMENT_COLUMNS = "status,cancellation_reason";
 
 const ts = z.string().min(10);
 
@@ -61,6 +65,10 @@ const itemRow = z.object({
 const historyRow = z.object({ to_status: z.string(), created_at: ts });
 const refundRow = z.object({ amount: z.number().int() });
 const productRow = z.object({ id: z.string(), slug: z.string() });
+const paymentRow = z.object({
+  status: z.enum(["pending", "waiting_for_capture", "succeeded", "canceled"]),
+  cancellation_reason: z.string().nullable(),
+});
 
 interface PgResult { data: unknown; error: { message: string; code?: string } | null }
 
@@ -106,13 +114,21 @@ export async function sumSucceededRefunds(c: Db, orderId: string): Promise<numbe
   return parse("refunds.view", refundRow.array(), res).reduce((s, r) => s + r.amount, 0);
 }
 
+/** Последний платёж заказа (индекс idx_payments_order: order_id, created_at desc) — для Edge Cases 35/37. */
+export async function selectLastPayment(c: Db, orderId: string): Promise<LastPaymentRecord | null> {
+  const res = await c.from("payments").select(ORDER_VIEW_PAYMENT_COLUMNS).eq("order_id", orderId)
+    .order("created_at", { ascending: false }).limit(1);
+  return parse("payments.view", paymentRow.array(), res)[0] ?? null;
+}
+
 /** Всё для buildOrderView; запросы параллельно. null — заказа нет. */
 export async function loadOrderViewData(c: Db, orderId: string): Promise<OrderViewData | null> {
-  const [order, items, history, refunded] = await Promise.all([
+  const [order, items, history, refunded, lastPayment] = await Promise.all([
     selectOrderViewRow(c, orderId),
     selectOrderViewItems(c, orderId),
     selectOrderHistory(c, orderId),
     sumSucceededRefunds(c, orderId),
+    selectLastPayment(c, orderId),
   ]);
-  return order === null ? null : { order, items, history, refunded_amount: refunded };
+  return order === null ? null : { order, items, history, refunded_amount: refunded, last_payment: lastPayment };
 }

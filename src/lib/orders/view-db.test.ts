@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { Db } from "@/lib/catalog/db";
 import { DbError } from "@/lib/orders/errors";
 import {
-  ORDER_VIEW_COLUMNS, ORDER_VIEW_HISTORY_COLUMNS, ORDER_VIEW_ITEM_COLUMNS, loadOrderViewData,
+  ORDER_VIEW_COLUMNS, ORDER_VIEW_HISTORY_COLUMNS, ORDER_VIEW_ITEM_COLUMNS, ORDER_VIEW_PAYMENT_COLUMNS, loadOrderViewData,
 } from "@/lib/orders/view-db";
 
 // Слой БД страницы заказа на мок-клиенте supabase-js: явные колонки (без служебных), Zod на строки, без N+1.
@@ -18,7 +18,7 @@ function mockDb(tables: Record<string, Res>) {
       const entry = { table, ops: [] as Call[] };
       calls.push(entry);
       const b: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "in", "order", "maybeSingle"]) {
+      for (const m of ["select", "eq", "in", "order", "limit", "maybeSingle"]) {
         b[m] = (...args: unknown[]) => { entry.ops.push([m, ...args]); return b; };
       }
       b.then = (ok: (r: Res) => unknown, fail?: (e: unknown) => unknown) =>
@@ -55,6 +55,7 @@ const tables = (over: Record<string, Res> = {}): Record<string, Res> => ({
   products: { data: [{ id: P1, slug: "forged-m01-r20-5x112-graphite" }], error: null },
   order_status_history: { data: [{ to_status: "paid", created_at: "2026-10-01T12:34:10+00:00" }], error: null },
   refunds: { data: [{ amount: 3340000 }, { amount: 100000 }], error: null },
+  payments: { data: [{ status: "canceled", cancellation_reason: "payment_method_limit_exceeded" }], error: null },
   ...over,
 });
 
@@ -69,15 +70,25 @@ describe("loadOrderViewData", () => {
     assert.equal(data.items[0].title, "M-01 R20");
     assert.deepEqual(data.history, [{ to_status: "paid", created_at: "2026-10-01T12:34:10+00:00" }]);
     assert.equal(data.refunded_amount, 3440000);
+    assert.deepEqual(data.last_payment, { status: "canceled", cancellation_reason: "payment_method_limit_exceeded" });
 
-    // Ровно 5 запросов: orders, order_items, products (один на все позиции), history, refunds.
-    assert.deepEqual(calls.map((c) => c.table).sort(), ["order_items", "order_status_history", "orders", "products", "refunds"]);
+    // Ровно 6 запросов: orders, order_items, products (один на все позиции), history, refunds, последний платёж.
+    assert.deepEqual(calls.map((c) => c.table).sort(), ["order_items", "order_status_history", "orders", "payments", "products", "refunds"]);
     const op = (t: string) => calls.find((c) => c.table === t)!.ops;
     assert.deepEqual(op("orders"), [["select", ORDER_VIEW_COLUMNS], ["eq", "id", ORDER_ID], ["maybeSingle"]]);
     assert.deepEqual(op("order_items")[0], ["select", ORDER_VIEW_ITEM_COLUMNS]);
     assert.deepEqual(op("products"), [["select", "id,slug"], ["in", "id", [P1, P2]]]);
     assert.deepEqual(op("order_status_history").slice(0, 2), [["select", ORDER_VIEW_HISTORY_COLUMNS], ["eq", "order_id", ORDER_ID]]);
     assert.deepEqual(op("refunds"), [["select", "amount"], ["eq", "order_id", ORDER_ID], ["eq", "status", "succeeded"]]);
+    assert.deepEqual(op("payments"), [
+      ["select", "status,cancellation_reason"], ["eq", "order_id", ORDER_ID], ["order", "created_at", { ascending: false }], ["limit", 1],
+    ]);
+  });
+
+  it("из payments читаются только status и cancellation_reason; платежей нет → last_payment null", async () => {
+    assert.deepEqual(ORDER_VIEW_PAYMENT_COLUMNS.split(","), ["status", "cancellation_reason"]);
+    const data = await loadOrderViewData(mockDb(tables({ payments: { data: [], error: null } })).db, ORDER_ID);
+    assert.equal(data?.last_payment, null);
   });
 
   it("служебные колонки не запрашиваются; select('*') нет", () => {

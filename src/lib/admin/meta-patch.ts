@@ -9,6 +9,7 @@ import { sameInstant, toIsoUtc } from "./timestamps";
 // Уведомление об изменении срока поставки (при изменении expected_ready_at или customer_visible_note; Edge Case 21, US-007):
 // по решению владельца (A47) используется шаблон customer_status_changed — текущий статус заказа + новые срок/заметка,
 // без нового типа и миграции. customer_notified = true, когда уведомление поставлено в очередь (отправка — после ответа).
+// Не шлётся (День 7): в статусах NO_DELIVERY_NOTIFY_STATUSES и при одной лишь очистке срока/заметки (показать нечего).
 
 export interface MetaPatchDeps {
   selectOrder(orderId: string): Promise<OrderChangeRow | null>;
@@ -18,6 +19,27 @@ export interface MetaPatchDeps {
     orderNumber: string; customerEmail: string; clientRequestId: string; status: string; trackingNumber: string | null;
     expectedReadyAt: string | null; customerVisibleNote: string | null;
   }): Promise<boolean>;
+}
+
+/**
+ * Статусы, в которых уведомление о сроке не шлётся: заказ не оплачен (pending_payment), закрыт без исполнения
+ * (cancelled, refunded) или не существует для покупателя (draft — защитно, в orders.status его нет).
+ */
+export const NO_DELIVERY_NOTIFY_STATUSES: ReadonlySet<string> = new Set(["pending_payment", "cancelled", "refunded", "draft"]);
+
+/**
+ * Слать ли покупателю «срок изменился»: изменилось хотя бы одно из expected_ready_at / customer_visible_note И у
+ * изменившихся есть что показать (новое значение не null). Только очистка (дата/заметка → null) — без письма.
+ */
+export function shouldNotifyDeliveryChanged(
+  status: string,
+  before: { expected_ready_at: string | null; customer_visible_note: string | null },
+  patch: Pick<MetaPatch, "expected_ready_at" | "customer_visible_note">,
+): boolean {
+  if (NO_DELIVERY_NOTIFY_STATUSES.has(status)) return false;
+  const dateChanged = patch.expected_ready_at !== undefined && patch.expected_ready_at !== before.expected_ready_at;
+  const noteChanged = patch.customer_visible_note !== undefined && patch.customer_visible_note !== before.customer_visible_note;
+  return (dateChanged && patch.expected_ready_at != null) || (noteChanged && patch.customer_visible_note != null);
 }
 
 export type MetaPatchResult = { kind: "not_found" } | { kind: "conflict" } | { kind: "ok"; data: AdminMetaPatchResult };
@@ -52,9 +74,7 @@ export async function patchOrderMeta(deps: MetaPatchDeps, input: { orderId: stri
   const updated = await deps.updateMeta(order.id, order.updated_at, patch);
   if (updated === null) return { kind: "conflict" };
 
-  const deliveryChanged =
-    (patch.expected_ready_at !== undefined && patch.expected_ready_at !== order.expected_ready_at)
-    || (patch.customer_visible_note !== undefined && patch.customer_visible_note !== order.customer_visible_note);
+  const deliveryChanged = shouldNotifyDeliveryChanged(order.status, order, patch);
 
   let customerNotified = false;
   if (deliveryChanged && deps.notifyDeliveryChanged) {

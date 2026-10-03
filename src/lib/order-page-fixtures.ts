@@ -40,7 +40,7 @@ function view(number: string, status: OrderStatus, patch: Partial<OrderView> = {
     reserved_until: null, can_pay: false, telegram_subscribed: false,
     telegram_link: `https://t.me/forgecarbon_bot?start=o_${FIXTURE_ORDER_TOKEN}`,
     customer: { name: "Артём Соколов", email_masked: "ar***@yandex.ru", phone_masked: "+7 916 ***-**-34" },
-    cancel_reason: null, refunded_amount_formatted: null,
+    cancel_reason: null, refunded_amount_formatted: null, payment_error: null,
     ...patch,
   };
 }

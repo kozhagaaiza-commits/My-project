@@ -23,6 +23,7 @@ interface PaymentBannerProps {
 /**
  * Блок оплаты для заказа в pending_payment. После возврата с ЮKassa — «Проверяем оплату…» (опрос), затем
  * «Оплата пока не поступила» (без возврата с ЮKassa — нейтральное «Заказ ожидает оплаты») + единственная жёлтая «Оплатить» и таймер брони. Бронь истекла — «Оформить заново».
+ * Последний платёж отменён (Edge Cases 35/37) — вместо заголовка текст причины из view.payment_error над «Оплатить».
  */
 export function PaymentBanner({ view, phase, fromPayment, paying, onPay }: PaymentBannerProps) {
   const nowMs = useNowMs();
@@ -51,7 +52,11 @@ export function PaymentBanner({ view, phase, fromPayment, paying, onPay }: Payme
     <Alert data-testid="payment-banner-unpaid">
       <CircleAlert aria-hidden />
       <AlertDescription className="text-foreground">
-        <p className="font-medium">{expired ? ORDER_NOT_PAYABLE_MESSAGE : unpaidBannerText(fromPayment)}</p>
+        {!expired && view.payment_error ? (
+          <p className="font-medium text-destructive" data-testid="payment-error">{view.payment_error}</p>
+        ) : (
+          <p className="font-medium">{expired ? ORDER_NOT_PAYABLE_MESSAGE : unpaidBannerText(fromPayment)}</p>
+        )}
         {!expired && timer && <p className="text-muted-foreground" data-testid="reserve-timer">{timer}</p>}
         {expired ? (
           <ReorderButton view={view} />

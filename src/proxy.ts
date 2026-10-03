@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { safeNextPath } from "@/lib/auth-next";
 
 // Next.js 16: proxy.ts вместо middleware.ts (Чертёж, Блок 0 «Маршруты», Блок 5.7 «Сессия»).
 // Обновляет сессию Supabase (refresh токена → Set-Cookie) на защищённых страницах, на /api/* (кроме
@@ -13,11 +14,6 @@ function isUnder(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-// Блок 5.10 «Открытый редирект»: next — только относительный путь, начинается с «/», но не с «//».
-function safeNext(path: string, fallback: string) {
-  return path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : fallback;
-}
-
 function redirectTo(request: NextRequest, target: string, from?: NextResponse) {
   const redirect = NextResponse.redirect(new URL(target, request.url));
   // Переносим обновлённые cookies сессии и запрет кеширования, если Supabase их выставил.
@@ -29,8 +25,9 @@ function redirectTo(request: NextRequest, target: string, from?: NextResponse) {
   return redirect;
 }
 
+// Блок 5.10 «Открытый редирект»: next — только относительный путь (общая проверка safeNextPath, Edge Case 28).
 function loginRedirect(request: NextRequest, nextPath: string, fallback: string, from?: NextResponse) {
-  const target = `/auth/login?next=${encodeURIComponent(safeNext(nextPath, fallback))}`;
+  const target = `/auth/login?next=${encodeURIComponent(safeNextPath(nextPath, fallback))}`;
   return redirectTo(request, target, from);
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { adminDeliveryLabel, adminVehicleLabel } from "@/lib/admin/labels";
-import { buildMetaPatch } from "@/lib/admin/meta-patch";
+import { buildMetaPatch, shouldNotifyDeliveryChanged } from "@/lib/admin/meta-patch";
 import { orderMoney } from "@/lib/admin/order-view";
 import { orderSearchFilter, phoneSearchDigits } from "@/lib/admin/orders-search";
 import { epochMicros, sameInstant, toIsoUtc } from "@/lib/admin/timestamps";
@@ -83,5 +83,27 @@ describe("buildMetaPatch", () => {
     const body = orderMetaPatchBody.parse({ customer_visible_note: "  ", admin_note: "x", needs_attention: false, updated_at: "2026-10-20T08:00:00.000Z" });
     assert.deepEqual(buildMetaPatch(body), { customer_visible_note: null, admin_note: "x", needs_attention: false });
     assert.deepEqual(buildMetaPatch(orderMetaPatchBody.parse({ updated_at: "2026-10-20T08:00:00.000Z" })), {});
+  });
+});
+
+describe("shouldNotifyDeliveryChanged (Edge Case 21, A47)", () => {
+  const before = { expected_ready_at: "2026-11-01", customer_visible_note: "Задержка на таможне" };
+  it("новый срок или новая заметка в живом статусе → шлём", () => {
+    assert.equal(shouldNotifyDeliveryChanged("ordered_from_supplier", before, { expected_ready_at: "2026-11-12" }), true);
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, { customer_visible_note: "Отгрузка в пятницу" }), true);
+    // Заметку очистили, но срок новый — показать есть что.
+    assert.equal(shouldNotifyDeliveryChanged("in_transit", before, { expected_ready_at: "2026-11-12", customer_visible_note: null }), true);
+  });
+  it("pending_payment, cancelled, refunded, draft → не шлём", () => {
+    for (const status of ["pending_payment", "cancelled", "refunded", "draft"]) {
+      assert.equal(shouldNotifyDeliveryChanged(status, before, { expected_ready_at: "2026-11-12", customer_visible_note: "x" }), false, status);
+    }
+  });
+  it("только очистка (новое значение null) или без изменений → не шлём", () => {
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, { customer_visible_note: null }), false);
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, { expected_ready_at: null }), false);
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, { expected_ready_at: null, customer_visible_note: null }), false);
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, { expected_ready_at: "2026-11-01" }), false);
+    assert.equal(shouldNotifyDeliveryChanged("paid", before, {}), false);
   });
 });

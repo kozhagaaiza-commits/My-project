@@ -13,10 +13,9 @@ import { getTelegramClient } from "@/lib/telegram";
 import type { CronDeps } from "@/app/api/cron/daily/handler";
 
 // Реальные зависимости cron (5.12). Service-role клиент (5.10: «cron»), новый на каждый шаг — сессий нет.
-// Бюджет разбора очереди оставляет запас до maxDuration маршрута: курс (до ~37 с) + сверка + очередь.
+// Бюджет разбора очереди считает handler.ts: остаток времени до общего дедлайна запуска (CRON_DEADLINE_MS) минус запас.
 
 export const CRON_QUEUE_LIMIT = 50;
-export const CRON_QUEUE_BUDGET_MS = 20_000;
 
 export function createCronDeps(): CronDeps {
   return {
@@ -28,7 +27,7 @@ export function createCronDeps(): CronDeps {
       const { checked, paid, failed } = await reconcileStalePayments();
       return { checked, paid, failed };
     },
-    processQueue: () => processNotificationQueue({ limit: CRON_QUEUE_LIMIT, budgetMs: CRON_QUEUE_BUDGET_MS }),
+    processQueue: (budgetMs) => processNotificationQueue({ limit: CRON_QUEUE_LIMIT, budgetMs }),
     cleanupRateLimits: async (olderThan) => {
       const { error, count } = await createAdminClient().from("rate_limit_hits")
         .delete({ count: "exact" }).lt("window_start", olderThan.toISOString());

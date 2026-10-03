@@ -53,6 +53,7 @@ const input = (over: Partial<BuildOrderViewInput> = {}): BuildOrderViewInput => 
   }],
   history: HISTORY,
   refunded_amount: 0,
+  last_payment: null,
   now: NOW,
   accessToken: TOKEN,
   telegramBotUsername: "forgecarbon_bot",
@@ -92,6 +93,7 @@ describe("buildOrderView: пример Блока 3 (stock, shipped, СДЭК П
       customer: { name: "Артём Соколов", email_masked: "ar***@yandex.ru", phone_masked: "+7 916 ***-**-34" },
       cancel_reason: null,
       refunded_amount_formatted: null,
+      payment_error: null,
     });
     assert.equal(rub(13370000).replace(/\s/g, " "), "133 700 ₽");
   });
@@ -264,6 +266,22 @@ describe("оплата: reserved_until и can_pay на границе брони
 
   it("без брони → can_pay false", () => {
     assert.equal(buildOrderView(input({ order: pending(null) })).can_pay, false);
+  });
+
+  it("Edge Cases 35/37: последний платёж canceled → безопасный текст, код ЮKassa наружу не выходит", () => {
+    const live = pending("2026-10-02T12:20:00+00:00");
+    const limit = buildOrderView(input({ order: live, last_payment: { status: "canceled", cancellation_reason: "payment_method_limit_exceeded" } }));
+    assert.equal(limit.payment_error, "Банк отклонил платёж. Попробуйте СБП или другую карту");
+    assert.ok(!JSON.stringify(limit).includes("payment_method_limit_exceeded"));
+    const funds = buildOrderView(input({ order: live, last_payment: { status: "canceled", cancellation_reason: "insufficient_funds" } }));
+    assert.equal(funds.payment_error, "Оплата не прошла");
+    assert.ok(!JSON.stringify(funds).includes("insufficient_funds"));
+    // Новая попытка в процессе, платежей нет, бронь истекла, заказ уже оплачен — текста нет.
+    assert.equal(buildOrderView(input({ order: live, last_payment: { status: "pending", cancellation_reason: null } })).payment_error, null);
+    assert.equal(buildOrderView(input({ order: live, last_payment: null })).payment_error, null);
+    const canceled = { status: "canceled" as const, cancellation_reason: "call_issuer" };
+    assert.equal(buildOrderView(input({ order: pending("2026-10-02T11:59:59+00:00"), last_payment: canceled })).payment_error, null);
+    assert.equal(buildOrderView(input({ order: order({ status: "cancelled" }), last_payment: canceled })).payment_error, null);
   });
 
   it("не pending_payment — reserved_until null, даже если в БД есть", () => {

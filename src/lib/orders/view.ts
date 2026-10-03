@@ -1,6 +1,7 @@
 import { MOSCOW_DELIVERY_DAYS, REGION_DELIVERY_DAYS } from "@/lib/config";
 import { formatRub } from "@/lib/money";
 import { DELIVERY_METHOD_LABELS, ORDER_STATUS_LABELS, TIMELINE_STEPS } from "@/lib/order-labels";
+import { paymentFailureText, type LastPaymentRecord } from "@/lib/orders/payment-failure";
 import type { DeliveryMethod, OrderKind, OrderStatus, OrderTimelineStep, OrderView } from "@/types/order-view";
 
 // Сборка OrderView (Блок 3: GET /api/orders/[number]; 5.3; US-004, US-005; Блок 4 «Статус заказа»).
@@ -54,6 +55,8 @@ export interface OrderViewData {
   history: OrderHistoryEntry[];
   /** Сумма возвратов со статусом succeeded, копейки. */
   refunded_amount: number;
+  /** Последний платёж заказа (статус + код причины отмены ЮKassa) или null — платежей нет. */
+  last_payment: LastPaymentRecord | null;
 }
 
 export interface BuildOrderViewInput extends OrderViewData {
@@ -154,6 +157,7 @@ export function buildOrderView(input: BuildOrderViewInput): OrderView {
   const o = input.order;
   const pending = o.status === "pending_payment";
   const reservedMs = o.reserved_until === null ? Number.NaN : Date.parse(o.reserved_until);
+  const canPay = pending && !Number.isNaN(reservedMs) && reservedMs > input.now.getTime();
   const tracking = isCdek(o.delivery_method) && o.tracking_number
     ? { number: o.tracking_number, url: `${CDEK_TRACKING_URL}${encodeURIComponent(o.tracking_number)}` }
     : null;
@@ -186,7 +190,7 @@ export function buildOrderView(input: BuildOrderViewInput): OrderView {
     expected_ready_at: o.kind === "preorder" ? o.expected_ready_at : null,
     customer_visible_note: o.customer_visible_note,
     reserved_until: pending ? iso(o.reserved_until) : null,
-    can_pay: pending && !Number.isNaN(reservedMs) && reservedMs > input.now.getTime(),
+    can_pay: canPay,
     telegram_subscribed: o.telegram_subscribed,
     telegram_link: input.accessToken === null
       ? null
@@ -194,5 +198,6 @@ export function buildOrderView(input: BuildOrderViewInput): OrderView {
     customer: { name: o.customer_name, email_masked: maskEmail(o.customer_email), phone_masked: maskPhone(o.customer_phone) },
     cancel_reason: o.status === "cancelled" ? o.cancel_reason : null,
     refunded_amount_formatted: input.refunded_amount > 0 ? formatRub(input.refunded_amount) : null,
+    payment_error: canPay ? paymentFailureText(input.last_payment) : null,
   };
 }

@@ -6,7 +6,9 @@ import type { AutoPriceRow } from "./rows";
 
 // Пересчёт pricing_mode = 'auto' товаров по последнему курсу (Блок 3 POST /api/admin/prices/recalculate; 5.4; 5.12 шаг 2).
 // Общий код для админского эндпоинта и cron: одна computeAutoPrice, одно правило пропусков. Применение обновляет price и
-// price_updated_at только у auto-товаров с изменившейся ценой (manual не трогается — условие pricing_mode = 'auto' в update).
+// price_updated_at у auto-товаров с изменившейся ценой, а у unchanged — только price_updated_at (цена актуальна на этот
+// курс: иначе автопересчёт сравнивал бы курс со старой датой и срабатывал каждый день). manual не трогается —
+// условие pricing_mode = 'auto' в update. skipped не трогаются (их исключает проверка порога в auto-reprice.ts).
 // Нужен курс только тех валют, в которых есть auto-товары; RUB — курс 1.
 //
 // Дополнительно к JSON Чертежа: old_price/new_price в копейках (3.0) и `skipped` — товары, которые нельзя
@@ -27,6 +29,13 @@ export type RecalcResult =
 export const SKIP_ATELIER = "Цена ателье выше новой розничной цены";
 export const SKIP_TOO_LARGE = "Цена получается больше допустимой";
 export const SKIP_RACE = "Товар изменили во время пересчёта";
+
+/** Причина пропуска товара при цене r по новому курсу (null — товар можно перевести на r или цена не меняется). */
+export function skipReason(p: Pick<AutoPriceRow, "price" | "price_atelier">, r: ReturnType<typeof priceWith>): string | null {
+  if (!r.ok) return SKIP_TOO_LARGE;
+  if (r.price !== p.price && p.price_atelier !== null && p.price_atelier > r.price) return SKIP_ATELIER;
+  return null;
+}
 
 const change = (p: AutoPriceRow, newPrice: number): PriceChange => ({
   product_id: p.id, title: p.title,
@@ -57,14 +66,15 @@ export async function recalculateAutoPrices(repo: AdminProductsRepo, opts: Recal
 
   const candidates: Array<{ p: AutoPriceRow; price: number }> = [];
   const skipped: PriceSkipped[] = [];
-  let unchanged = 0;
+  const unchangedIds: string[] = [];
   for (const p of products) {
     const r = priceWith(p.purchase_cost, p.purchase_currency, rates.get(p.purchase_currency) as number, settings);
-    if (!r.ok) skipped.push({ product_id: p.id, title: p.title, reason: SKIP_TOO_LARGE });
-    else if (r.price === p.price) unchanged++;
-    else if (p.price_atelier !== null && p.price_atelier > r.price) skipped.push({ product_id: p.id, title: p.title, reason: SKIP_ATELIER });
+    const reason = skipReason(p, r);
+    if (reason !== null || !r.ok) skipped.push({ product_id: p.id, title: p.title, reason: reason ?? SKIP_TOO_LARGE });
+    else if (r.price === p.price) unchangedIds.push(p.id);
     else candidates.push({ p, price: r.price });
   }
+  const unchanged = unchangedIds.length;
 
   if (opts.dryRun) return { kind: "ok", data: { dry_run: true, changes: candidates.map((c) => change(c.p, c.price)), unchanged, skipped } };
 
@@ -74,5 +84,6 @@ export async function recalculateAutoPrices(repo: AdminProductsRepo, opts: Recal
     if (await repo.updateAutoPrice(c.p.id, c.p.price, c.price, at)) changes.push(change(c.p, c.price));
     else skipped.push({ product_id: c.p.id, title: c.p.title, reason: SKIP_RACE });
   }
+  await repo.touchAutoPrices(unchangedIds, at);
   return { kind: "ok", data: { dry_run: false, changes, unchanged, skipped } };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import type { RefreshResult } from "@/lib/cbr";
-import { createCronHandler, staleRatesText, type CronDeps } from "./handler";
+import { CRON_DEADLINE_MS, CRON_QUEUE_TAIL_MS, DEADLINE_SKIP_TEXT, createCronHandler, staleRatesText, type CronDeps } from "./handler";
 
 // GET /api/cron/daily (Блок 3; 5.12): авторизация Bearer, шесть независимых шагов, итог — JSON Блока 3.
 
@@ -21,7 +21,7 @@ function setup(over: Partial<CronDeps> = {}) {
     repriceProducts: async () => { calls.push("reprice"); return { enabled: true, currencies: ["USD"], repriced_products: 18, skipped_products: 0 }; },
     cancelExpiredOrders: async () => { calls.push("cancel"); return 2; },
     reconcilePayments: async () => { calls.push("payments"); return { checked: 3, paid: 1, failed: 0 }; },
-    processQueue: async () => { calls.push("queue"); return { sent: 1, failed: 0, retried: 0, remaining: 0 }; },
+    processQueue: async (budgetMs) => { calls.push(`queue:${budgetMs}`); return { sent: 1, failed: 0, retried: 0, remaining: 0 }; },
     cleanupRateLimits: async (olderThan) => { calls.push(`cleanup:${olderThan.toISOString()}`); return 412; },
     latestRateDate: async () => { calls.push("latest"); return "2026-10-03"; },
     alertAdmin: async (text) => { alerts.push(text); return true; },
@@ -66,7 +66,9 @@ describe("GET /api/cron/daily", () => {
       rates: RATES, repriced_products: 18, cancelled_orders: 2, payments: { checked: 3, paid: 1, failed: 0 },
       notifications: { sent: 1, failed: 0, remaining: 0 }, rate_limit_rows_deleted: 412,
     });
-    assert.deepEqual(calls.map((c) => c.split(":")[0]), ["rates", "reprice", "cancel", "payments", "queue", "cleanup", "latest"]);
+    // Шаг 6 (алерт и уборка) — до сверки и очереди; очередь получает весь остаток времени минус запас.
+    assert.deepEqual(calls.map((c) => c.split(":")[0]), ["rates", "reprice", "cancel", "latest", "cleanup", "payments", "queue"]);
+    assert.ok(calls.includes(`queue:${CRON_DEADLINE_MS - CRON_QUEUE_TAIL_MS}`));
     assert.ok(calls.includes("cleanup:2026-10-02T06:00:00.000Z"), "rate_limit_hits старше 1 суток");
   });
 
@@ -81,7 +83,7 @@ describe("GET /api/cron/daily", () => {
     assert.deepEqual(error?.details?.failed_steps, ["rates"]);
     assert.match(String(error?.details?.rates_error), /CBR timeout after 10000 ms/);
     assert.ok(!calls.includes("reprice"));
-    for (const step of ["cancel", "payments", "queue", "latest"]) assert.ok(calls.includes(step), step);
+    for (const step of ["cancel", "payments", "queue", "latest"]) assert.ok(calls.some((c) => c.split(":")[0] === step), step);
   });
 
   it("ошибки каждого шага независимы; failed_steps перечисляет все упавшие", async () => {
@@ -120,6 +122,52 @@ describe("GET /api/cron/daily", () => {
     const { call } = setup({ latestRateDate: async () => "2026-09-20", alertAdmin: async () => false });
     const { error } = await json(await call());
     assert.deepEqual(error?.details?.failed_steps, ["cleanup"]);
+  });
+
+  it("сбой ЦБ: алерт «курс устарел» уходит до сверки платежей и очереди (не теряется, если они съели время)", async () => {
+    mock.method(console, "error", () => {});
+    const order: string[] = [];
+    const { call } = setup({
+      refreshRates: async () => { throw new Error("CBR 503"); },
+      latestRateDate: async () => "2026-09-28",
+      alertAdmin: async (text) => { order.push(`alert:${text}`); return true; },
+      reconcilePayments: async () => { order.push("payments"); throw new Error("hang"); },
+      processQueue: async () => { order.push("queue"); return { sent: 0, failed: 0, retried: 0, remaining: 0 }; },
+    });
+    const { error } = await json(await call());
+    assert.deepEqual(order, ["alert:Курс ЦБ не обновлялся с 28.09.2026", "payments", "queue"]);
+    assert.deepEqual(error?.details?.failed_steps, ["rates", "payments"]);
+  });
+
+  it("общий дедлайн: курс ЦБ занял 30 с, сверка 18 с → очередь получает остаток 2 с − запас < минимума → пропущена", async () => {
+    mock.method(console, "error", () => {});
+    let t = NOW.getTime();
+    const { calls, call } = setup({
+      now: () => new Date(t),
+      refreshRates: async () => { calls.push("rates"); t += 30_000; return RATES; },
+      reconcilePayments: async () => { calls.push("payments"); t += 18_000; return { checked: 9, paid: 0, failed: 0 }; },
+    });
+    const { error } = await json(await call());
+    assert.ok(!calls.some((c) => c.startsWith("queue")), "очередь не запускается");
+    assert.deepEqual(error?.details?.failed_steps, ["queue"]);
+    assert.equal(error?.details?.queue_error, DEADLINE_SKIP_TEXT);
+    assert.ok(calls.includes("latest"), "алерт и уборка выполнены");
+  });
+
+  it("общий дедлайн: остаток 20 с → бюджет очереди 15 с; дедлайн пройден до сверки → сверка и очередь пропущены", async () => {
+    mock.method(console, "error", () => {});
+    let t = NOW.getTime();
+    const a = setup({ now: () => new Date(t), refreshRates: async () => { t += CRON_DEADLINE_MS - 20_000; return RATES; } });
+    mock.method(console, "info", () => {});
+    await a.call();
+    assert.ok(a.calls.includes(`queue:${20_000 - CRON_QUEUE_TAIL_MS}`), a.calls.join(","));
+
+    let u = NOW.getTime();
+    const b = setup({ now: () => new Date(u), cancelExpiredOrders: async () => { u += CRON_DEADLINE_MS + 1; return 0; } });
+    const { error } = await json(await b.call());
+    assert.deepEqual(error?.details?.failed_steps, ["payments", "queue"]);
+    assert.ok(!b.calls.some((c) => c === "payments" || c.startsWith("queue")));
+    assert.ok(b.calls.includes("latest"), "алерт не зависит от дедлайна");
   });
 
   it("ошибка сборки зависимостей (env) → 500 без деталей", async () => {

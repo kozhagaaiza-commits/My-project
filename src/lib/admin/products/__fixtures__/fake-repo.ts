@@ -214,6 +214,17 @@ export class FakeProductsDb implements AdminProductsRepo {
     this.products.set(id, { ...p, price: newPrice, price_updated_at: at, updated_at: this.stamp() });
     return true;
   }
+  async touchAutoPrices(ids: string[], at: string) {
+    this.log("touchAutoPrices", ids, at);
+    let n = 0;
+    for (const id of ids) {
+      const p = this.products.get(id);
+      if (!p || p.pricing_mode !== "auto") continue;
+      this.products.set(id, { ...p, price_updated_at: at, updated_at: this.stamp() });
+      n++;
+    }
+    return n;
+  }
 }
 
 export class FakeStorage implements ImageStorage {

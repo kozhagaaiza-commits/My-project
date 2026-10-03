@@ -181,6 +181,13 @@ export function createAdminProductsRepo(c: SupabaseClient, service: () => Supaba
         .eq("id", id).eq("pricing_mode", "auto").eq("price", oldPrice).select("id");
       return list(idRow, res, "admin.products.reprice").length > 0;
     },
+
+    async touchAutoPrices(ids, at) {
+      if (ids.length === 0) return 0;
+      const res = await c.from("products").update({ price_updated_at: at })
+        .in("id", ids).eq("pricing_mode", "auto").select("id");
+      return list(idRow, res, "admin.products.reprice_touch").length;
+    },
   };
 }
 
