@@ -49,7 +49,7 @@ export function CartLineItem({ row, pricesLoading, refreshing, onQuantity, onRem
         <div className="flex items-start justify-between gap-2">
           <p className={cn("line-clamp-2 text-sm leading-snug font-medium", unavailable && "text-muted-foreground")}>
             {slug && !unavailable ? (
-              <Link href={`/product/${slug}`} onClick={onNavigate} className="hover:underline focus-visible:underline">
+              <Link href={`/product/${slug}`} onClick={onNavigate} className="inline-flex hover:underline focus-visible:underline max-md:min-h-11 max-md:items-center">
                 {title}
               </Link>
             ) : (

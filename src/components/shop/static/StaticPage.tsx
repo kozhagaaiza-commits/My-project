@@ -52,7 +52,7 @@ export function StaticPage({ title, lead, sections, children }: StaticPageProps)
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-silver">
               {sections.map((s) => (
                 <li key={s.id}>
-                  <a href={`#${s.id}`} className="hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                  <a href={`#${s.id}`} className="max-md:inline-flex max-md:min-h-11 max-md:items-center hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                     {s.title}
                   </a>
                 </li>

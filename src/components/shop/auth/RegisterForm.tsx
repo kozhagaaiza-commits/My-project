@@ -67,7 +67,7 @@ export function RegisterForm({ next, fixtures }: RegisterFormProps) {
             В каталог
           </Link>
         </p>
-        <Link href={`/auth/login${nextQuery(next)}`} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+        <Link href={`/auth/login${nextQuery(next)}`} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           Уже есть аккаунт? Войти
         </Link>
       </form>

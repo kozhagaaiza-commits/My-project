@@ -79,10 +79,10 @@ export function LoginForm({ next, linkExpired, fixtures }: LoginFormProps) {
         )}
         <AuthSubmitButton pending={isSubmitting}>Войти</AuthSubmitButton>
         <div className="flex flex-col gap-1 text-sm">
-          <Link href="/auth/forgot-password" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+          <Link href="/auth/forgot-password" className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             Забыли пароль?
           </Link>
-          <Link href={`/auth/register${nextQuery(next)}`} className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+          <Link href={`/auth/register${nextQuery(next)}`} className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             Нет аккаунта? Зарегистрироваться
           </Link>
         </div>

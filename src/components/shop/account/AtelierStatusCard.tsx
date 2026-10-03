@@ -24,7 +24,7 @@ export function AtelierStatusCard({ status }: AtelierStatusCardProps) {
             <Link href="/atelier" className="font-medium underline-offset-4 hover:underline">{label}</Link>
           </>
         ) : (
-          <Link href="/atelier" className="font-medium underline-offset-4 hover:underline">Вы ателье? Подать заявку</Link>
+          <Link href="/atelier" className="inline-flex font-medium underline-offset-4 hover:underline max-md:min-h-11 max-md:items-center">Вы ателье? Подать заявку</Link>
         )}
       </CardContent>
     </Card>

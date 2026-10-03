@@ -29,7 +29,7 @@ export function NavLinks({ items, orientation = "horizontal", onNavigate }: NavL
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  "block rounded-md px-3 py-2 max-md:py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                   active ? "text-foreground" : "text-silver",
                 )}
               >

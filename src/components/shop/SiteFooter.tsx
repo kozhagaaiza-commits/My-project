@@ -12,7 +12,7 @@ const FOOTER_LINKS = [
   { href: "/contacts", label: "Контакты" },
 ];
 
-const linkClass = "hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+const linkClass = "max-md:inline-flex max-md:min-h-11 max-md:items-center hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
 export function SiteFooter() {
   const requisites = [SELLER_NAME, SELLER_INN && `ИНН ${SELLER_INN}`, SELLER_OGRNIP && `ОГРНИП ${SELLER_OGRNIP}`]

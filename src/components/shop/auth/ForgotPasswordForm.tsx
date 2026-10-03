@@ -33,7 +33,7 @@ export function ForgotPasswordForm({ fixtures }: { fixtures: boolean }) {
       <div className="flex flex-col items-center gap-4 text-center" role="status">
         <MailCheck className="size-10 text-primary" aria-hidden />
         <p className="text-base font-medium">Если аккаунт с таким email есть, письмо отправлено</p>
-        <Link href="/auth/login" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
+        <Link href="/auth/login" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           Вернуться ко входу
         </Link>
       </div>
@@ -47,7 +47,7 @@ export function ForgotPasswordForm({ fixtures }: { fixtures: boolean }) {
         <AuthField control={form.control} name="email" label="Email" type="email" autoComplete="email" inputMode="email" />
         {failure && <AuthFormError>{AUTH_FAILURE_MESSAGES[failure]}</AuthFormError>}
         <AuthSubmitButton pending={isSubmitting}>Отправить ссылку</AuthSubmitButton>
-        <Link href="/auth/login" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+        <Link href="/auth/login" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
           Вернуться ко входу
         </Link>
       </form>

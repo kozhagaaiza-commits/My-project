@@ -13,7 +13,7 @@ export default function AuthLayout({ children }: LayoutProps<"/auth">) {
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-10">
       <Link
         href="/"
-        className="font-mono text-sm font-semibold tracking-widest text-foreground uppercase focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="font-mono text-sm font-semibold tracking-widest text-foreground uppercase max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         {SITE_NAME}
       </Link>
@@ -24,7 +24,7 @@ export default function AuthLayout({ children }: LayoutProps<"/auth">) {
       </main>
       <Link
         href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="inline-flex max-md:min-h-11 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <ArrowLeft className="size-4" aria-hidden />
         На главную

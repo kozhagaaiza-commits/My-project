@@ -10,7 +10,7 @@ export function CheckoutHeader() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-4 md:px-6">
         <Link
           href="/"
-          className="font-mono text-sm font-semibold tracking-widest text-foreground uppercase focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="font-mono text-sm font-semibold tracking-widest text-foreground uppercase max-md:inline-flex max-md:min-h-11 max-md:items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           {SITE_NAME}
         </Link>

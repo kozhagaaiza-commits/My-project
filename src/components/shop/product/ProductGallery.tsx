@@ -74,7 +74,7 @@ export function ProductGallery({ images, type, title }: ProductGalleryProps) {
                 aria-label={`Фото ${i + 1}`}
                 aria-current={i === active}
                 onClick={() => goTo(i)}
-                className="flex size-6 items-center justify-center"
+                className="flex size-11 items-center justify-center"
               >
                 <span className={cn("size-2 rounded-full", i === active ? "bg-silver" : "bg-border")} />
               </button>
