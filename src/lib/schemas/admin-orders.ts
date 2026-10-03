@@ -8,8 +8,17 @@ export const ORDER_STATUSES_ALL = [
 ] as const;
 
 export const orderStatus = z.enum(["pending_payment", "paid", "confirmed", "ordered_from_supplier", "in_transit", "arrived", "shipped", "delivered", "cancelled", "refunded"]);
+/**
+ * ОТСТУПЛЕНИЕ (решение координатора, День 6): в Чертеже status — один enum. Вкладки «Под заказ» и «Отменён/возврат»
+ * (Блок 4) объединяют несколько статусов, поэтому принимается один статус или список через запятую
+ * («ordered_from_supplier,in_transit»); каждый элемент проверяется по enum, повторы убираются. Результат — массив.
+ */
+export const orderStatusList = z.string().trim()
+  .transform((v) => [...new Set(v.split(",").map((x) => x.trim()))])
+  .pipe(z.array(orderStatus).min(1).max(10));
+
 export const adminOrdersQuery = z.object({
-  status: orderStatus.optional(),
+  status: orderStatusList.optional(),
   kind: z.enum(["stock", "preorder"]).optional(),
   // FIX(blueprint): в Чертеже z.coerce.boolean() — он превращает строку "false" в true (Boolean("false")),
   // и ?attention=false фильтровал бы «требуют внимания». z.stringbool(): "true"/"1" → true, "false"/"0" → false.

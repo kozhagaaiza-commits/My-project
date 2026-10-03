@@ -55,7 +55,16 @@ describe("GET /api/admin/orders", () => {
   it("параметры разбираются Zod: status, kind, attention, q (trim), page", async () => {
     const { queries, call } = setup();
     await call("?status=paid&kind=stock&attention=true&q=%20FC-26-0009%20&page=2");
-    assert.deepEqual(queries[0], { status: "paid", kind: "stock", attention: true, q: "FC-26-0009", page: 2 });
+    assert.deepEqual(queries[0], { status: ["paid"], kind: "stock", attention: true, q: "FC-26-0009", page: 2 });
+  });
+
+  it("status списком через запятую (вкладки «Под заказ», «Отменён/возврат»): каждый элемент по enum, повторы убраны", async () => {
+    const { queries, call } = setup();
+    assert.equal((await call("?status=cancelled,%20refunded,cancelled")).status, 200);
+    assert.deepEqual(queries[0].status, ["cancelled", "refunded"]);
+    const bad = await setup().call("?status=paid,lost");
+    assert.equal(bad.status, 400);
+    assert.equal((await setup().call("?status=,")).status, 400);
   });
 
   it("meta.page отражает запрошенную страницу", async () => {
@@ -63,7 +72,7 @@ describe("GET /api/admin/orders", () => {
     assert.deepEqual(((await res.json()) as { meta: unknown }).meta, { total: 41, page: 3, per_page: 20 });
   });
 
-  for (const qs of ["?status=lost", "?kind=both", "?q=ab", "?page=0", "?attention=maybe"]) {
+  for (const qs of ["?status=lost", "?status=", "?status=paid,lost", "?kind=both", "?q=ab", "?page=0", "?attention=maybe"]) {
     it(`400 VALIDATION_ERROR на ${qs}, без БД`, async () => {
       const { calls, call } = setup();
       const res = await call(qs);

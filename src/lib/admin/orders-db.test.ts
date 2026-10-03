@@ -42,6 +42,12 @@ describe("selectAdminOrders", () => {
     assert.deepEqual(ops.at(-1), ["range", 40, 59]);
   });
 
+  it("несколько статусов → in(status, [...])", async () => {
+    const { db, calls } = mockDb(() => ({ data: [], count: 0 }));
+    await selectAdminOrders(db, q({ status: "ordered_from_supplier,in_transit,arrived" }));
+    assert.deepEqual(calls[0].ops[1], ["in", "status", ["ordered_from_supplier", "in_transit", "arrived"]]);
+  });
+
   it("attention=false — без фильтра (Switch выключен)", async () => {
     const { db, calls } = mockDb(() => ({ data: [], count: 0 }));
     await selectAdminOrders(db, q({ attention: "false" }));

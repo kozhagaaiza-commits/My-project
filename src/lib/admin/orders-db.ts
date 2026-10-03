@@ -50,7 +50,7 @@ export type AdminOrderListRow = z.infer<typeof adminOrderListRow>;
 export async function selectAdminOrders(c: Db, q: AdminOrdersQuery): Promise<{ rows: AdminOrderListRow[]; total: number }> {
   const build = (head: boolean) => {
     let b = c.from("orders").select(head ? "id" : ADMIN_ORDER_LIST_COLUMNS, { count: "exact", head });
-    if (q.status) b = b.eq("status", q.status);
+    if (q.status) b = q.status.length === 1 ? b.eq("status", q.status[0]) : b.in("status", q.status);
     if (q.kind) b = b.eq("kind", q.kind);
     if (q.attention === true) b = b.eq("needs_attention", true);
     if (q.q) {
