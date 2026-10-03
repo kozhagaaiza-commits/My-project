@@ -321,8 +321,9 @@ describe("ручной возврат: заказ pending_payment / cancelled �
   });
 
   it("cancelled (бронь истекла), оплата прошла → сверка переводит в paid, возврат проходит (Edge Case 43)", async () => {
-    w = makeWorld(fake, { status: "cancelled" });
+    w = makeWorld(fake);
     const id = await w.newPayment();
+    Object.assign(order() ?? {}, { status: "cancelled" }); // cancel_expired_orders снял бронь
     fake.succeed(id, "sbp");
     w.advance(61_000);
     const res = await refund({ restock: false });
@@ -330,7 +331,7 @@ describe("ручной возврат: заказ pending_payment / cancelled �
     assert.equal(order()?.status, "refunded");
   });
 
-  it("строка payments succeeded, заказ не оплачен, сверка ещё не положена (60 с) → payment_unconfirmed без ЮKassa", async () => {
+  it("строка payments succeeded, заказ не оплачен, сверка ещё рано (< 60 с) → payment_unconfirmed без ЮKassa", async () => {
     w = makeWorld(fake);
     await w.newPayment();
     w.repo.payments[0].status = "succeeded"; // сбой между обновлением payments и mark_order_paid
