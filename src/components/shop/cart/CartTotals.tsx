@@ -23,6 +23,7 @@ export function CartTotals({ data, loading, failed = false, refreshing = false, 
   const hide = compactOnMobile ? "max-md:hidden" : "";
   return (
     <div className={cn("flex flex-col gap-2 text-sm tabular-nums", refreshing && "opacity-60")} aria-busy={refreshing}>
+      {data?.price_tier === "atelier" && <p className={cn("text-silver", hide)}>Цены для ателье</p>}
       <div className={cn("flex items-center justify-between", hide)}>
         <span className="text-muted-foreground">Товары</span>
         <Amount value={data?.subtotal_formatted} loading={loading} failed={failed} />

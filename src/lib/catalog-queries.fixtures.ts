@@ -1,5 +1,5 @@
 import "server-only";
-import { CATALOG_PAGE_SIZE } from "@/lib/config";
+import { CATALOG_PAGE_SIZE, FEATURE_ATELIER } from "@/lib/config";
 import { formatRub } from "@/lib/money";
 import type { CartProduct } from "@/types/cart";
 import type {
@@ -82,8 +82,9 @@ function specsShort(w: FixtureWheelSpecs): string {
   return `R${w.diameter_in} · ${widths} · ${w.pcd.replace("x", "×")} · ET ${pair(w.et_front_mm, w.et_rear_mm)} · ЦО ${w.center_bore_mm.toFixed(1)}`;
 }
 
+// BR-20: при FEATURE_ATELIER = false цены ателье не показываются и на фикстурах (как isAtelierPricing).
 const showAtelier = (ctx: CatalogContext) =>
-  ctx.atelierId !== null || process.env.CATALOG_FIXTURES_ATELIER === "1";
+  FEATURE_ATELIER && (ctx.atelierId !== null || process.env.CATALOG_FIXTURES_ATELIER === "1");
 
 function pricesOf(p: FixtureProduct, ctx: CatalogContext) {
   const atelier = showAtelier(ctx) ? p.price_atelier : null;

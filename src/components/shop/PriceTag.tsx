@@ -17,7 +17,7 @@ export function PriceTag({ price_formatted, price_atelier_formatted, unit, size 
       <div className={cn("flex flex-col", className)}>
         <p className={cn(amount, "font-semibold tabular-nums")}>Для ателье: {price_atelier_formatted}</p>
         <p className="text-sm text-muted-foreground tabular-nums">
-          <s>{price_formatted}</s> {unit}
+          Розница: <s>{price_formatted}</s> {unit}
         </p>
       </div>
     );

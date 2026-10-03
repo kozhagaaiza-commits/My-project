@@ -1,3 +1,4 @@
+import { approvedAtelierId } from "@/lib/ateliers/access";
 import { createClient } from "@/lib/supabase/server";
 
 export async function getSessionContext() {
@@ -8,7 +9,7 @@ export async function getSessionContext() {
   let atelierId: string | null = null;
   if (profile?.role === "atelier") {
     const { data: a } = await supabase.from("ateliers").select("id,status").eq("user_id", user.id).single();
-    atelierId = a?.status === "approved" ? a.id : null;
+    atelierId = approvedAtelierId(profile.role, a);
   }
   return { supabase, user, role: profile?.role ?? "customer", atelierId } as const;
 }

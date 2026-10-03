@@ -19,6 +19,8 @@ export const RATE_LIMITS = {
   payOrder: { limit: 100, windowSeconds: 600 },
   /** GET /api/orders/[number] — 30 на IP за 60 с. Ключ `order:<ip>`. fail-closed (Edge Case 22: перебор номеров). */
   orderRead: { limit: 30, windowSeconds: 60 },
+  /** POST /api/ateliers — 3 на пользователя за 3600 с. Ключ `ateliers:<user.id>`. fail-closed (заявка шлёт Telegram админу). */
+  ateliers: { limit: 3, windowSeconds: 3600 },
 } as const;
 
 /** Текст 3.0 для 429 по умолчанию. */
@@ -121,6 +123,22 @@ export async function limitOrderReadWith(check: RateLimitCheck, request: Request
   const { limit, windowSeconds } = RATE_LIMITS.orderRead;
   return (await check(`order:${getClientIp(request)}`, limit, windowSeconds)) ? null : rateLimitedResponse(windowSeconds);
 }
+
+/** 429 POST /api/ateliers: окно — час, текст 3.0 «через минуту» был бы неверен (Приложение A). */
+export const ATELIERS_RATE_LIMITED_MESSAGE = "Слишком много заявок. Повторите через час";
+
+/**
+ * Лимит POST /api/ateliers (5.10): 3 / 3600 с на пользователя, ключ `ateliers:<user.id>`. fail-closed: сбой хранилища
+ * лимитов — исключение (→ 500); каждая заявка — сообщение админу в Telegram.
+ */
+export async function limitAtelierApplyWith(check: RateLimitCheck, userId: string) {
+  const { limit, windowSeconds } = RATE_LIMITS.ateliers;
+  return (await check(`ateliers:${userId}`, limit, windowSeconds))
+    ? null : rateLimitedResponse(windowSeconds, ATELIERS_RATE_LIMITED_MESSAGE);
+}
+
+export const limitAtelierApply = (userId: string) =>
+  limitAtelierApplyWith((key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds), userId);
 
 export const limitOrderRead = (request: Request) =>
   limitOrderReadWith((key, limit, windowSeconds) => checkRateLimit(key, limit, windowSeconds), request);

@@ -102,3 +102,23 @@ describe("limitPayWith: 10 / 600 с на заказ с IP + общий пото�
     await assert.rejects(mod.limitPayWith(failing, reqFrom("203.0.113.7"), "FC-26-000123"), /down/);
   });
 });
+
+describe("лимит POST /api/ateliers (5.10: 3 / 3600 с на пользователя)", () => {
+  it("ключ ateliers:<user.id>, 4-я заявка за час → 429 + Retry-After 3600; fail-closed", async () => {
+    const keys: string[] = [];
+    let n = 0;
+    const check = async (key: string, limit: number, windowSeconds: number) => {
+      keys.push(`${key}|${limit}|${windowSeconds}`);
+      return ++n <= limit;
+    };
+    for (let i = 0; i < 3; i++) assert.equal(await mod.limitAtelierApplyWith(check, "u-1"), null);
+    const res = await mod.limitAtelierApplyWith(check, "u-1");
+    assert.equal(res?.status, 429);
+    assert.equal(res?.headers.get("Retry-After"), "3600");
+    assert.deepEqual(await res?.json(), {
+      error: { code: "RATE_LIMITED", message: "Слишком много заявок. Повторите через час", details: { retry_after_seconds: 3600 } },
+    });
+    assert.equal(keys[0], "ateliers:u-1|3|3600");
+    await assert.rejects(mod.limitAtelierApplyWith(async () => { throw new Error("down"); }, "u-1"), /down/);
+  });
+});

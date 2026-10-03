@@ -12,13 +12,13 @@ export const metadata: Metadata = { title: "Аккаунт", robots: { index: fa
 
 const first = (v: string | string[] | undefined): string | null => (Array.isArray(v) ? v[0] : v) ?? null;
 
-async function load(pageNumber: number, mode: string | null): Promise<{ data: AccountData | null; fixtures: boolean }> {
-  // Подмена данных (AUTH_FIXTURES=1) только вне production; условие инлайн, чтобы бандлер вырезал ветку с import фикстур.
+async function load(pageNumber: number, mode: string | null, atelier: string | null): Promise<{ data: AccountData | null; fixtures: boolean }> {
+  // Подмена данных (AUTH_FIXTURES=1; ?atelier=pending|approved|rejected) только вне production; условие инлайн, чтобы бандлер вырезал ветку с import фикстур.
   if (process.env.NODE_ENV !== "production" && process.env.AUTH_FIXTURES === "1") {
     const fx = await import("@/lib/account-fixtures");
     return {
       fixtures: true,
-      data: { user: fx.FIXTURE_USER, fullName: fx.FIXTURE_PROFILE.full_name, phone: fx.FIXTURE_PROFILE.phone, atelierStatus: null, orders: fx.fixtureOrders(mode, pageNumber) },
+      data: { user: fx.FIXTURE_USER, fullName: fx.FIXTURE_PROFILE.full_name, phone: fx.FIXTURE_PROFILE.phone, atelierStatus: ["pending", "approved", "rejected"].includes(atelier ?? "") ? atelier : null, orders: fx.fixtureOrders(mode, pageNumber) },
     };
   }
   return { fixtures: false, data: await loadAccount(pageNumber) };
@@ -27,7 +27,7 @@ async function load(pageNumber: number, mode: string | null): Promise<{ data: Ac
 export default async function AccountPage({ searchParams }: PageProps<"/account">) {
   const sp = await searchParams;
   const parsed = pageParam.safeParse(first(sp.page) ?? undefined);
-  const { data, fixtures } = await load(parsed.success ? parsed.data : 1, first(sp.orders));
+  const { data, fixtures } = await load(parsed.success ? parsed.data : 1, first(sp.orders), first(sp.atelier));
   // proxy.ts уже отправляет гостей на вход; здесь — вторая линия (сессия истекла между proxy и страницей).
   if (!data) redirect("/auth/login?next=%2Faccount");
 

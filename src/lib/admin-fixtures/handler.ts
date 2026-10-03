@@ -1,3 +1,4 @@
+import { handleAtelierFixture } from "@/lib/admin-fixtures/ateliers-data";
 import { allowedTransitionsFor } from "@/lib/admin-fixtures/transitions";
 import { FIXTURE_ORDERS_COUNT, buildDetail, buildListItem, orderId } from "@/lib/admin-fixtures/orders-data";
 import { handleSettingsRoute, type SettingsState, initialSettingsState } from "@/lib/admin-fixtures/settings-data";
@@ -151,6 +152,8 @@ export function handleAdminFixture(method: string, rawUrl: string, body: unknown
   const [, , section, id, action] = parts;
   const payload = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
 
+  const atelier = section === "ateliers" ? handleAtelierFixture(method, rawUrl, body) : null;
+  if (atelier) return atelier;
   if (section === "summary" && method === "GET") return summary();
   if (section === "orders" && !id && method === "GET") return listOrders(url.searchParams);
   if (section === "orders" && id) {
