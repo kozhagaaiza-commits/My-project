@@ -1,11 +1,6 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-
-export const ATELIER_STATUS_LABELS: Record<string, string> = {
-  pending: "На рассмотрении",
-  approved: "Одобрена",
-  rejected: "Отклонена",
-};
+import { ATELIER_STATUS_LABELS } from "@/lib/ateliers/labels";
 
 interface AtelierStatusCardProps {
   /** null — заявки нет. */

@@ -108,10 +108,26 @@ export async function selectAdminAteliers(db: Db, q: AdminAteliersQuery): Promis
 }
 
 /** Число заказов ателье (колонка «Заказов»): head-запрос, строки не читаются. */
-export async function countAtelierOrders(db: Db, atelierId: string): Promise<number> {
-  const res = await db.from("orders").select("id", { count: "exact", head: true }).eq("atelier_id", atelierId);
-  check("ateliers.admin.orders_count", res);
-  return res.count ?? 0;
+/** Страница выборки atelier_id: PostgREST по умолчанию отдаёт не больше 1000 строк (max_rows). */
+export const ORDERS_COUNT_PAGE = 1000;
+const atelierIdRow = z.object({ atelier_id: z.string() });
+
+/**
+ * orders_count для строк страницы списка одним запросом `orders.atelier_id in (ids)` (вместо head-count на строку);
+ * подсчёт по atelier_id — в приложении. Страницы по 1000 строк, пока ответ полный (лимит max_rows PostgREST).
+ * Ателье без заказов — 0.
+ */
+export async function countAtelierOrders(db: Db, atelierIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>(atelierIds.map((id) => [id, 0]));
+  if (atelierIds.length === 0) return counts;
+  for (let from = 0; ; from += ORDERS_COUNT_PAGE) {
+    const res = await db.from("orders").select("atelier_id").in("atelier_id", atelierIds)
+      .order("id").range(from, from + ORDERS_COUNT_PAGE - 1);
+    check("ateliers.admin.orders_count", res);
+    const rows = z.array(atelierIdRow).parse(res.data ?? []);
+    for (const r of rows) counts.set(r.atelier_id, (counts.get(r.atelier_id) ?? 0) + 1);
+    if (rows.length < ORDERS_COUNT_PAGE) return counts;
+  }
 }
 
 /** Email владельца заявки из auth.users (Auth Admin API, только service-role). null — пользователь не найден / без email. */

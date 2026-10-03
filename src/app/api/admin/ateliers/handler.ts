@@ -12,8 +12,8 @@ import { z } from "zod";
 
 // GET /api/admin/ateliers?status=pending&page=1 (Блок 3 «Админка — ателье»; Блок 4 «Админка — Ателье»).
 // Порядок: FEATURE_ATELIER (404, BR-20) → admin (401 / 403 / 429) → Zod → список (новые сверху, по 20) →
-// email (auth.users) и orders_count — не больше 5 запросов одновременно. Сбой чтения email не роняет список
-// (телефон в строке есть): email = null, ошибка в лог.
+// orders_count — одним запросом по id страницы; email (auth.users) — по строке, не больше 5 запросов одновременно.
+// Сбой чтения email не роняет список (телефон в строке есть): email = null, ошибка в лог.
 
 export interface AdminAteliersListDeps {
   featureAtelier: boolean;
@@ -23,14 +23,11 @@ export interface AdminAteliersListDeps {
 
 export const ATELIER_LOOKUP_CONCURRENCY = 5;
 
-async function toItem(repo: AdminAteliersRepo, r: AdminAtelier): Promise<AdminAtelierListItem> {
-  const [email, ordersCount] = await Promise.all([
-    repo.userEmail(r.user_id).catch((err: unknown) => {
-      console.error({ scope: "admin.ateliers.email", atelierId: r.id, err });
-      return null;
-    }),
-    repo.countOrders(r.id),
-  ]);
+async function toItem(repo: AdminAteliersRepo, r: AdminAtelier, ordersCount: number): Promise<AdminAtelierListItem> {
+  const email = await repo.userEmail(r.user_id).catch((err: unknown) => {
+    console.error({ scope: "admin.ateliers.email", atelierId: r.id, err });
+    return null;
+  });
   return {
     id: r.id,
     company_name: r.company_name,
@@ -58,7 +55,8 @@ async function handle(request: Request, deps: AdminAteliersListDeps): Promise<Re
   }
   const repo = deps.repo();
   const { rows, total } = await repo.list(parsed.data);
-  const items = await mapLimit(rows, ATELIER_LOOKUP_CONCURRENCY, (r) => toItem(repo, r));
+  const counts = await repo.countOrders(rows.map((r) => r.id));
+  const items = await mapLimit(rows, ATELIER_LOOKUP_CONCURRENCY, (r) => toItem(repo, r, counts.get(r.id) ?? 0));
   return adminOk(items, { total, page: parsed.data.page, per_page: ADMIN_PAGE_SIZE });
 }
 

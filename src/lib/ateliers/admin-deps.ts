@@ -13,7 +13,7 @@ export function createAdminAteliersRepo(): AdminAteliersRepo {
   const db = createAdminClient();
   return {
     list: (q) => selectAdminAteliers(db, q),
-    countOrders: (id) => countAtelierOrders(db, id),
+    countOrders: (ids) => countAtelierOrders(db, ids),
     userEmail: (userId) => selectUserEmail(db, userId),
     byId: (id) => selectAtelierById(db, id),
     existsOtherApprovedInn: (inn, exceptId) => existsOtherApprovedInn(db, inn, exceptId),

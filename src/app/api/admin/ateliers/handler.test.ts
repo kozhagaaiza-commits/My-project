@@ -37,6 +37,15 @@ describe("GET /api/admin/ateliers", () => {
     assert.deepEqual(approved.data.map((r: { orders_count: number; email: string | null }) => [r.orders_count, r.email]), [[4, null]]);
   });
 
+  it("orders_count — один запрос на страницу, не по строке", async () => {
+    const db = new FakeAteliers(atelier(), atelier({ id: OTHER_AT, user_id: OTHER_USER }));
+    db.orders.set(AT_ID, 2);
+    const res = await list(db);
+    const byId = Object.fromEntries((await res.json()).data.map((r: { id: string; orders_count: number }) => [r.id, r.orders_count]));
+    assert.deepEqual(byId, { [AT_ID]: 2, [OTHER_AT]: 0 });
+    assert.equal(db.calls.filter((c) => c === "countOrders").length, 1);
+  });
+
   it("сбой чтения email → email null, список отдаётся", async () => {
     const db = new FakeAteliers(atelier());
     db.fail.userEmail = new Error("auth api down");
@@ -138,6 +147,34 @@ describe("PATCH /api/admin/ateliers/[id]", () => {
     assert.deepEqual(await res.json(), { data: { id: AT_ID, status: "approved", reviewed_at: "2026-10-01T09:00:00.000Z" } });
     assert.ok(!db.calls.includes("updateReview"));
     assert.equal(sent.length, 0);
+  });
+
+  it("повтор approved досинхронизирует роль customer → atelier", async () => {
+    const db = new FakeAteliers(atelier({ status: "approved", reviewed_at: "2026-10-01T09:00:00Z" }));
+    const res = await review(db).call(APPROVE);
+    assert.equal(res.status, 200);
+    assert.equal(db.roles.get(USER), "atelier");
+  });
+
+  it("повтор rejected досинхронизирует роль atelier → customer, без записи и письма", async () => {
+    const db = new FakeAteliers(atelier({ status: "rejected", rejection_reason: REJECT.rejection_reason, reviewed_at: "2026-10-01T09:00:00Z" }));
+    db.roles.set(USER, "atelier");
+    const { call, sent } = review(db);
+    const res = await call(REJECT);
+    assert.deepEqual(await res.json(), { data: { id: AT_ID, status: "rejected", reviewed_at: "2026-10-01T09:00:00.000Z" } });
+    assert.equal(db.roles.get(USER), "customer");
+    assert.ok(!db.calls.includes("updateReview"));
+    assert.equal(sent.length, 0);
+  });
+
+  it("сбой досинхронизации роли при повторе → 200 (ошибка в лог)", async () => {
+    for (const [status, body, failKey] of [["approved", APPROVE, "setRole:atelier"], ["rejected", REJECT, "setRole:customer"]] as const) {
+      const db = new FakeAteliers(atelier({ status, reviewed_at: "2026-10-01T09:00:00Z" }));
+      db.fail[failKey] = new Error("db");
+      const res = await review(db).call(body);
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).data.status, status);
+    }
   });
 
   it("администратор с заявкой не теряет роль admin", async () => {

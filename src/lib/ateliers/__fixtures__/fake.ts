@@ -77,7 +77,7 @@ export class FakeAteliers {
           .sort((a, b) => b.created_at.localeCompare(a.created_at));
         return { rows: all.slice((q.page - 1) * 20, q.page * 20), total: all.length };
       },
-      countOrders: async (id) => { this.hit("countOrders"); return this.orders.get(id) ?? 0; },
+      countOrders: async (ids) => { this.hit("countOrders"); return new Map(ids.map((id) => [id, this.orders.get(id) ?? 0])); },
       userEmail: async (userId) => { this.hit("userEmail"); return this.emails.get(userId) ?? null; },
       byId: async (id) => { this.hit("byId"); const r = this.rows.get(id); return r ? { ...r } : null; },
       existsOtherApprovedInn: async (inn, exceptId) => {

@@ -35,6 +35,19 @@ describe("atelierApplyBody", () => {
       assert.equal(atelierApplyBody.safeParse({ ...BODY, website: w }).success, false, w);
     }
   });
+  it("русские тексты min/max", () => {
+    const msg = (over: object) => atelierApplyBody.safeParse({ ...BODY, ...over }).error?.issues[0]?.message;
+    assert.equal(msg({ company_name: "G" }), "Минимум 2 символа");
+    assert.equal(msg({ city: "x".repeat(81) }), "Не больше 80 символов");
+    assert.equal(msg({ contact_name: "x".repeat(101) }), "Не больше 100 символов");
+    assert.equal(msg({ comment: "x".repeat(1001) }), "Не больше 1000 символов");
+    assert.equal(msg({ website: `https://a.ru/${"x".repeat(200)}` }), "Не больше 200 символов");
+  });
+  it("название, город, контакт: пробелы и переносы схлопываются до проверки длины", () => {
+    const r = atelierApplyBody.parse({ ...BODY, company_name: "  Garage\n\n  77 ", city: "Санкт-\tПетербург", contact_name: "Илья\r\nВетров" });
+    assert.deepEqual([r.company_name, r.city, r.contact_name], ["Garage 77", "Санкт- Петербург", "Илья Ветров"]);
+    assert.equal(atelierApplyBody.safeParse({ ...BODY, company_name: "G\n\n\n" }).error?.issues[0]?.message, "Минимум 2 символа");
+  });
   it("комментарий > 1000 и название < 2 → ошибка", () => {
     assert.equal(atelierApplyBody.safeParse({ ...BODY, comment: "x".repeat(1001) }).success, false);
     assert.equal(atelierApplyBody.safeParse({ ...BODY, company_name: "G" }).success, false);
@@ -47,6 +60,9 @@ describe("atelierReviewBody / adminAteliersQuery", () => {
     assert.equal(atelierReviewBody.safeParse({ status: "approved", rejection_reason: "текст" }).success, false);
     assert.equal(atelierReviewBody.safeParse({ status: "rejected", rejection_reason: "коротко" }).success, false);
     assert.equal(atelierReviewBody.safeParse({ status: "rejected", rejection_reason: "x".repeat(501) }).success, false);
+    const reason = (v: string) => atelierReviewBody.safeParse({ status: "rejected", rejection_reason: v }).error?.issues[0]?.message;
+    assert.equal(reason("коротко"), "Минимум 10 символов");
+    assert.equal(reason("x".repeat(501)), "Не больше 500 символов");
   });
   it("query: статус необязателен, page по умолчанию 1", () => {
     assert.deepEqual(adminAteliersQuery.parse({}), { page: 1 });

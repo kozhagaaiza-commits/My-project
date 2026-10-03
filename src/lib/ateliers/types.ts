@@ -38,7 +38,8 @@ export interface AdminAtelier extends OwnAtelier {
 /** Админка ателье (service-role, только после authorizeAdminApi). */
 export interface AdminAteliersRepo {
   list(q: AdminAteliersQuery): Promise<{ rows: AdminAtelier[]; total: number }>;
-  countOrders(atelierId: string): Promise<number>;
+  /** Число заказов по каждому id (одним запросом); id без заказов — 0. */
+  countOrders(atelierIds: string[]): Promise<Map<string, number>>;
   /** Email из auth.users; null — не найден. Может бросать. */
   userEmail(userId: string): Promise<string | null>;
   byId(id: string): Promise<AdminAtelier | null>;

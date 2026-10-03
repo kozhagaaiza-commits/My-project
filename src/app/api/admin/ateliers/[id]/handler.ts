@@ -50,6 +50,14 @@ async function revertRole(repo: AdminAteliersRepo, a: AdminAtelier): Promise<voi
   }
 }
 
+async function syncRole(repo: AdminAteliersRepo, a: AdminAtelier, role: "atelier" | "customer"): Promise<void> {
+  try {
+    await repo.setRole(a.user_id, role, [role === "atelier" ? "customer" : "atelier"]);
+  } catch (err) {
+    console.error({ scope: "admin.ateliers.review.syncRole", atelierId: a.id, role, err });
+  }
+}
+
 async function approve(repo: AdminAteliersRepo, a: AdminAtelier, reviewedAt: string): Promise<Response | null> {
   if (await repo.existsOtherApprovedInn(a.inn, a.id)) return innConflict(a.inn);
   const changed = await repo.setRole(a.user_id, "atelier", ["customer"]);
@@ -112,8 +120,9 @@ async function handle(request: Request, id: string, deps: AdminAtelierReviewDeps
   if (!a) return notFound();
 
   if (a.status === body.status) {
-    // Повтор решения: состояние уже такое. Для approved роль досинхронизируется (на случай прошлого частичного сбоя).
-    if (a.status === "approved") await repo.setRole(a.user_id, "atelier", ["customer"]);
+    // Повтор решения: состояние уже такое. Роль досинхронизируется (на случай прошлого частичного сбоя): approved →
+    // atelier, rejected → customer. Сбой досинхронизации — только в лог: доступ к ценам определяет ateliers.status.
+    await syncRole(repo, a, a.status === "approved" ? "atelier" : "customer");
     return reviewed({ id: a.id, status: body.status, reviewed_at: a.reviewed_at ?? deps.now().toISOString() });
   }
 

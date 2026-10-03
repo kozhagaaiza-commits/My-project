@@ -1,4 +1,3 @@
-import type { z } from "zod";
 import type { FieldError, Resolver } from "react-hook-form";
 import { atelierApplyBody } from "@/lib/schemas/ateliers";
 import type { MyAtelier } from "@/types/ateliers";
@@ -36,13 +35,6 @@ export function parseApplyPayload(values: AtelierFormValues) {
   return parsed.success ? parsed.data : null;
 }
 
-/** Русское сообщение: встроенные тексты zod (min/max без своего message) английские, свои — уже русские. */
-function issueMessage(issue: z.core.$ZodIssue): string {
-  if (issue.code === "too_small" && issue.origin === "string") return `Минимум ${issue.minimum} символа`;
-  if (issue.code === "too_big" && issue.origin === "string") return `Не больше ${issue.maximum} символов`;
-  return issue.message;
-}
-
 /** zodResolver не подходит из-за «пусто → null»: разбираем atelierApplyBody вручную, первая ошибка на поле. */
 export const atelierResolver: Resolver<AtelierFormValues> = async (values) => {
   const parsed = atelierApplyBody.safeParse(toApplyInput(values));
@@ -51,7 +43,7 @@ export const atelierResolver: Resolver<AtelierFormValues> = async (values) => {
   for (const issue of parsed.error.issues) {
     const key = issue.path[0];
     if (typeof key === "string" && (ATELIER_FIELDS as readonly string[]).includes(key) && !(key in errors)) {
-      errors[key as keyof AtelierFormValues] = { type: "validation", message: issueMessage(issue) };
+      errors[key as keyof AtelierFormValues] = { type: "validation", message: issue.message };
     }
   }
   return { values: {}, errors };

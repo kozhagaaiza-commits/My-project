@@ -34,7 +34,8 @@ export function AtelierApplyForm({ initial, resubmit, onApplied, onAlreadyApplie
         <AuthField control={c} name="phone" label="Телефон" type="tel" inputMode="tel" autoComplete="tel"
           placeholder="+7 (999) 999-99-99" transform={applyPhoneMask} />
         <AuthField control={c} name="website" label="Сайт или соцсети" type="url" inputMode="url" autoComplete="url"
-          maxLength={200} placeholder="https://vk.com/garage77" description="Необязательно" />
+          maxLength={200} placeholder="https://vk.com/garage77"
+          description="Необязательно. Ссылка вида https://site.ru или https://vk.com/…" />
         <FormField
           control={c}
           name="comment"
