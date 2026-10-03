@@ -10,6 +10,8 @@ export function buildCustomerStatusChangedPayload(p: {
   status: string;
   trackingNumber: string | null;
   orderUrl: string | null;
+  /** Только для уведомления об изменении срока (A47). */
+  delivery?: { expectedReadyAt: string | null; customerVisibleNote: string | null };
 }): CustomerStatusChangedPayload {
   const withTrack = p.status === "shipped" && p.trackingNumber !== null && p.trackingNumber !== "";
   return {
@@ -19,5 +21,8 @@ export function buildCustomerStatusChangedPayload(p: {
     tracking_number: withTrack ? p.trackingNumber : null,
     tracking_url: withTrack && p.trackingNumber ? `${CDEK_TRACKING_URL}${encodeURIComponent(p.trackingNumber)}` : null,
     order_url: p.orderUrl,
+    ...(p.delivery
+      ? { expected_ready_at: p.delivery.expectedReadyAt, customer_visible_note: p.delivery.customerVisibleNote }
+      : {}),
   };
 }

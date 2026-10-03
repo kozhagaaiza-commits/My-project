@@ -2,7 +2,10 @@ import { after } from "next/server";
 import { authorizeAdminApi } from "@/lib/admin/api-guard";
 import { loadAdminOrderDetail } from "@/lib/admin/orders-db";
 import { selectOrderForChange, updateOrderMeta } from "@/lib/admin/orders-write";
+import { notifyDeliveryChanged } from "@/lib/notifications/customer-status";
+import { getDefaultNotifyDeps } from "@/lib/notifications/deps";
 import { rpcCancelExpiredOrders } from "@/lib/orders/db";
+import { orderPageUrl, orderToken } from "@/lib/orders/token";
 import { getDefaultPaymentsDeps } from "@/lib/payments/deps";
 import { reconcileOrderPayments } from "@/lib/payments/reconcile";
 import { refreshOrderRefunds } from "@/lib/payments/refund-refresh";
@@ -27,7 +30,16 @@ const patchHandler = createPatchAdminOrderHandler({
   authorize: (request) => authorizeAdminApi(request, { mutation: true }),
   selectOrder: (orderId) => selectOrderForChange(createAdminClient(), orderId),
   updateMeta: (orderId, updatedAt, patch) => updateOrderMeta(createAdminClient(), orderId, updatedAt, patch),
-  // notifyDeliveryChanged не задан: шаблона «Срок поставки изменился» в Чертеже нет (см. src/lib/admin/meta-patch.ts).
+  // A47: срок/заметка — шаблон customer_status_changed; сбор ссылки не должен ронять запрос.
+  notifyDeliveryChanged: async (p) => {
+    let orderUrl: string | null = null;
+    try {
+      orderUrl = orderPageUrl(p.orderNumber, orderToken(p.clientRequestId));
+    } catch (err) {
+      console.error({ scope: "admin.orders.meta.orderUrl", err });
+    }
+    return notifyDeliveryChanged(await getDefaultNotifyDeps(), { ...p, orderUrl });
+  },
 });
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -6,18 +6,16 @@ import { sameInstant, toIsoUtc } from "./timestamps";
 // PATCH /api/admin/orders/[id] (Блок 3; Блок 4 «Админка — Заказ»; Edge Cases 14, 21, 46): заметки, трек, ожидаемая дата,
 // снятие отметки needs_attention — без смены статуса. Оптимистическая блокировка по updated_at.
 //
-// Уведомление «Срок поставки изменился» (при изменении expected_ready_at или customer_visible_note): в Чертеже нет шаблона
-// для него — список notification_queue.template (2.13) и тексты 5.9.2 содержат только 8 шаблонов, customer_status_changed
-// описан как «Заказ …: <статус>. Трек СДЭК: …» (смена статуса). Шаблон не выдумываем:
-// TODO(owner, День 6): решение по шаблону (новый template + миграция CHECK, либо явное разрешение переиспользовать
-// customer_status_changed) — до этого deps.notifyDeliveryChanged не задан и customer_notified = false.
+// Уведомление об изменении срока поставки (при изменении expected_ready_at или customer_visible_note; Edge Case 21, US-007):
+// по решению владельца (A47) используется шаблон customer_status_changed — текущий статус заказа + новые срок/заметка,
+// без нового типа и миграции. customer_notified = true, когда уведомление поставлено в очередь (отправка — после ответа).
 
 export interface MetaPatchDeps {
   selectOrder(orderId: string): Promise<OrderChangeRow | null>;
   updateMeta(orderId: string, updatedAt: string, patch: MetaPatch): Promise<MetaResultRow | null>;
-  /** «Срок поставки изменился»; не бросает. Не задан — уведомление не отправляется (см. TODO выше). */
+  /** customer_status_changed со сроком/заметкой (A47); не бросает; true — поставлено в очередь. Не задан — без уведомления. */
   notifyDeliveryChanged?(p: {
-    orderNumber: string; customerEmail: string; clientRequestId: string;
+    orderNumber: string; customerEmail: string; clientRequestId: string; status: string; trackingNumber: string | null;
     expectedReadyAt: string | null; customerVisibleNote: string | null;
   }): Promise<boolean>;
 }
@@ -63,6 +61,8 @@ export async function patchOrderMeta(deps: MetaPatchDeps, input: { orderId: stri
     try {
       customerNotified = await deps.notifyDeliveryChanged({
         orderNumber: order.number, customerEmail: order.customer_email, clientRequestId: order.client_request_id,
+        status: order.status,
+        trackingNumber: patch.tracking_number !== undefined ? patch.tracking_number : order.tracking_number,
         expectedReadyAt: updated.expected_ready_at,
         customerVisibleNote: patch.customer_visible_note !== undefined ? patch.customer_visible_note : order.customer_visible_note,
       });

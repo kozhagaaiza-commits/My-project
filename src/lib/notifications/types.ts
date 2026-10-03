@@ -83,6 +83,12 @@ export interface CustomerStatusChangedPayload {
   tracking_number: string | null;
   tracking_url: string | null; // https://www.cdek.ru/ru/tracking?order_id=<трек>
   order_url: string | null;
+  /**
+   * Изменение срока поставки (A47, Edge Case 21): тот же шаблон, без нового типа. Поля есть только в уведомлении
+   * «срок/заметка изменились»: новый срок готовности (YYYY-MM-DD) и видимая покупателю заметка.
+   */
+  expected_ready_at?: string | null;
+  customer_visible_note?: string | null;
 }
 
 /** «Заявка Garage 77 одобрена. Цены для ателье доступны после входа на сайт». */

@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { formatDay } from "@/lib/order-page-format";
 import { buildEmail, oneLine, type EmailContent } from "@/lib/notifications/email";
 import * as schemas from "@/lib/notifications/payload-schemas";
 import {
@@ -64,9 +65,18 @@ function statusLine(p: CustomerStatusChangedPayload): string {
   return `Заказ ${p.order_number}: ${p.status_label}${track}`;
 }
 
+/** ДОБАВЛЕНО (A47, Edge Case 21): строки «срок/заметка изменились» в customer_status_changed; пусто для обычной смены статуса. */
+function deliveryLines(p: CustomerStatusChangedPayload): string[] {
+  const lines: string[] = [];
+  const day = p.expected_ready_at ? formatDay(p.expected_ready_at) : null;
+  if (day) lines.push(`Ожидаем на складе к ${day}`);
+  if (p.customer_visible_note) lines.push(p.customer_visible_note);
+  return lines;
+}
+
 function tgCustomerStatusChanged(p: CustomerStatusChangedPayload): string {
   const withTrack = p.status === "shipped" && p.tracking_number;
-  const lines = [e(statusLine(p))];
+  const lines = [e(statusLine(p)), ...deliveryLines(p).map(e)];
   if (withTrack && p.tracking_url) lines.push(`Отследить: ${e(p.tracking_url)}`); // ДОБАВЛЕНО (US-004, шаг 4)
   return lines.join("\n");
 }
@@ -98,7 +108,7 @@ function emailCustomerStatusChanged(p: CustomerStatusChangedPayload): EmailConte
   const withTrack = p.status === "shipped" && p.tracking_number;
   return buildEmail(`Заказ ${p.order_number}: ${p.status_label}`, {
     heading: statusLine(p),
-    paragraphs: withTrack && p.tracking_url ? [`Отследить: ${p.tracking_url}`] : [],
+    paragraphs: [...deliveryLines(p), ...(withTrack && p.tracking_url ? [`Отследить: ${p.tracking_url}`] : [])],
     button: p.order_url ? { label: "Статус заказа", url: p.order_url } : undefined,
   });
 }

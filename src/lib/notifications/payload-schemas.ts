@@ -32,6 +32,7 @@ export const adminAtelierApplied = z.object({ company_name: text(200), inn: text
 export const customerStatusChanged = z.object({
   order_number: text(40), status: text(40), status_label: text(100),
   tracking_number: text(60).nullable(), tracking_url: urlField.nullable(), order_url: urlField.nullable(),
+  expected_ready_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), customer_visible_note: text(1000).nullable().optional(),
 });
 export const atelierApproved = z.object({ company_name: text(200) });
 export const atelierRejected = z.object({ company_name: text(200), rejection_reason: text(1000) });
