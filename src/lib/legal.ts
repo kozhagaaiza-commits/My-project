@@ -1,10 +1,10 @@
 // Реквизиты продавца (Блок 0, 4 «Статичные страницы», 5.11). Значения заполняет владелец ДО продакшн-сборки:
 // `next build` падает, если любая константа — пустая строка (проверка в next.config.ts).
-// Значения не выдумываем: оставлены пустыми намеренно.
-export const SELLER_NAME = ""; // ФИО или наименование ИП, например «ИП Иванов Иван Иванович»
-export const SELLER_INN = "";
-export const SELLER_OGRNIP = "";
-export const SELLER_EMAIL = "";
+// Значения — временные заглушки владельца; перед запуском заменить реальными реквизитами.
+export const SELLER_NAME = "ИП Кожухова Аиза"; // ФИО или наименование ИП, например «ИП Иванов Иван Иванович»
+export const SELLER_INN = "000000000000";
+export const SELLER_OGRNIP = "000000000000000";
+export const SELLER_EMAIL = "example@mail.ru";
 
 export const LEGAL_CONSTANTS = { SELLER_NAME, SELLER_INN, SELLER_OGRNIP, SELLER_EMAIL } as const;
 
