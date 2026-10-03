@@ -1,0 +1,24 @@
+---
+description: Правила для React-компонентов и страниц ForgeCarbon
+paths:
+  - "src/components/**"
+  - "src/app/**/page.tsx"
+  - "src/app/**/layout.tsx"
+  - "src/app/**/loading.tsx"
+  - "src/app/**/error.tsx"
+  - "src/app/**/not-found.tsx"
+  - "src/app/globals.css"
+  - "src/content/**"
+---
+- Экран реализуется по своему разделу `docs/blueprint.md`, Блок 4: компоненты, тексты, действия, responsive.
+- Server Components по умолчанию; `'use client'` только при необходимости (состояние, события, Browser API).
+- Один компонент = один файл, максимум 200 строк.
+- Props типизировать через `interface`, не `type`.
+- Обязательно: loading, error, empty состояния — как в Блоке 4.
+- Только Tailwind v4 и токены темы (`bg-card`, `text-silver`, `bg-primary`…); тема только тёмная; кастомный CSS и `@apply` не использовать.
+- Одна жёлтая кнопка (`variant="default"`) на экран; остальные `outline` / `ghost`.
+- Тексты — дословно из Чертежа; запрещены «хит продаж», «скидка», «акция», «последний шанс», «дёшево».
+- Деньги — только `formatRub`; характеристики, цены в таблицах и номера заказов — `font-mono`, цены — `tabular-nums`.
+- Формы — react-hook-form + `zodResolver` с общей схемой из `src/lib/schemas`.
+- `localStorage`/`sessionStorage` — только в `try/catch`.
+- `dangerouslySetInnerHTML` запрещён (кроме MDX статичных страниц).

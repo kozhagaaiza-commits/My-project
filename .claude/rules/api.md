@@ -1,0 +1,27 @@
+---
+description: Правила для API (Route Handlers) и серверного кода ForgeCarbon
+paths:
+  - "src/app/api/**"
+  - "src/app/auth/callback/**"
+  - "src/lib/schemas/**"
+  - "src/lib/auth.ts"
+  - "src/lib/api-error.ts"
+  - "src/lib/rate-limit.ts"
+  - "src/lib/catalog.ts"
+  - "src/lib/order-status.ts"
+  - "src/lib/pricing.ts"
+  - "src/lib/supabase/**"
+  - "src/proxy.ts"
+---
+- Контракт каждого эндпоинта — `docs/blueprint.md`, Блок 3: Zod-схема, JSON ответов, коды ошибок и тексты `message` переносятся дословно.
+- Мутации — только Route Handlers; Server Actions не используются. `params` — `Promise`, читать через `await`.
+- Валидация входа через Zod `safeParse`; ошибка → `400 VALIDATION_ERROR` с `details.fields = z.flattenError(err).fieldErrors`.
+- Авторизация на каждом защищённом эндпоинте: `getSessionContext()`; `/api/admin/*` → 401/403 до любой работы. Пользователь — только `auth.getUser()`.
+- Мутации (кроме `/api/webhooks/*`, `/api/cron/*`) проверяют `Origin` (CSRF), иначе 403.
+- Rate limit по таблице Блока 5.10 через `check_rate_limit`; 429 + `Retry-After`.
+- Ответы: `{ data }` / `{ data, meta }`; ошибки — только `apiError()`; правильные HTTP-коды (400, 401, 403, 404, 409, 410, 422, 429, 500, 502).
+- Деньги — копейки + `*_formatted`. `purchase_cost`/`purchase_currency`/`pricing_mode` никогда не отдаются публично; `price_atelier` — только одобренному ателье.
+- Service-role клиент — только в местах из Блока 5.10, файл начинается с `import "server-only"`.
+- Заказы: служебные колонки `orders` (admin_note, attention_reason, needs_attention, telegram_chat_id, public_token_hash, client_request_id) и `order_status_history.note` недоступны роли `authenticated` (колоночные права). `/api/admin/orders*` и чтение заказа по токену/владельцу — через service-role после явной проверки роли admin или владения; никогда `select("*")` из `orders` под сессией.
+- Логирование — структурированные объекты в `console.error`; клиенту стек не отдаётся.
+- Типизированные ответы: типы из `src/types/database.ts` и `z.infer` схем, без `any`.

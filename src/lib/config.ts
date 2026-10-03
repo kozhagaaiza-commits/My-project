@@ -1,0 +1,13 @@
+export const SITE_NAME = "ForgeCarbon";
+export const FEATURE_ATELIER = true;
+export const CURRENCY = "RUB";
+export const RESERVATION_MINUTES = 30;          // бронь товара на время оплаты
+export const MAX_WHEEL_SETS_PER_LINE = 2;        // комплектов одного диска в заказе
+export const MAX_CARBON_QTY_PER_LINE = 4;
+export const MAX_LINES_PER_ORDER = 10;
+export const MOSCOW_DELIVERY_DAYS = { min: 1, max: 2 };
+export const REGION_DELIVERY_DAYS = { min: 2, max: 5 };
+export const PRICE_ROUNDING_RUB = 100;           // цена округляется вверх до 100 ₽
+export const PRIVACY_POLICY_VERSION = "2026-10-01";
+export const ORDER_PAGE_SIZE = 20;
+export const CATALOG_PAGE_SIZE = 24;

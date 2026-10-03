@@ -1,0 +1,22 @@
+---
+description: Правила для платежей ЮKassa, заказов и возвратов ForgeCarbon
+paths:
+  - "src/lib/yookassa.ts"
+  - "src/lib/money.ts"
+  - "src/lib/payments/**"
+  - "src/app/api/orders/**"
+  - "src/app/api/webhooks/yookassa/**"
+  - "src/app/api/admin/orders/**"
+  - "src/app/(shop)/checkout/**"
+  - "src/app/(shop)/orders/**"
+---
+- Источник — `docs/blueprint.md`, 5.9.1 и эндпоинты заказов/оплаты/возвратов Блока 3. Сложные изменения — через субагента `payments-specialist`.
+- Заказ переходит в `paid` только по webhook или сверке, подтверждённым `GET /v3/payments/{id}`; `return_url` статус не меняет (BR-12).
+- Тело webhook не доверенное: IP allowlist ЮKassa + повторный GET объекта.
+- Idempotence-Key на каждом POST: `order_<order_id>_<attempt>`, `refund_<refund.id>`. Ретраи — с тем же ключом; 4xx не повторять.
+- Цена — только из БД (`create_order`); клиентская сумма — только `expected_total` для сравнения (BR-07).
+- Суммы — целые копейки; в ЮKassa — строка рублей через `kopecksToRubString`.
+- Чек 54-ФЗ (`receipt`) в каждом платеже и возврате; `vat_code` — константа `YOOKASSA_VAT_CODE`.
+- Уведомления об оплате отправляются только при результате `mark_order_paid` = `paid` / `paid_needs_attention`.
+- Сумма возвратов ≤ оплаченной (BR-16); `restock` — только `kind = 'stock'` и не `delivered` (BR-17).
+- Ключи ЮKassa — только на сервере (`import "server-only"`), никогда в логах и ответах.
