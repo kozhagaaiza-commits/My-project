@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { OrderPageContent } from "@/components/shop/order/OrderPageContent";
 import { env } from "@/lib/env";
 import type { GetOrderViewResult } from "@/lib/orders/get-view";
 import { getOrderView } from "@/lib/orders/get-view";
 import { getOrderSessionContext } from "@/lib/orders/session";
+import { limitOrderRead } from "@/lib/rate-limit";
+
+// Потолок функции: сверка с ЮKassa внутри getOrderView ограничена RECONCILE_BUDGET_MS, остаток — в after().
+export const maxDuration = 30;
 
 const ORDER_NUMBER_RE = /^FC-\d{2}-\d{6}$/;
 
@@ -17,6 +22,10 @@ async function loadView(number: string, token: string | null): Promise<GetOrderV
   if (process.env.NODE_ENV !== "production" && process.env.ORDERS_FIXTURES === "1") {
     return (await import("@/lib/order-page-fixtures")).getFixtureOrderView(number, token);
   }
+  // Лимит чтения заказа (30 / 60 с на IP, как у GET /api/orders/[number]) — защита от перебора номеров и токенов.
+  // limitOrderRead принимает Request: собираем его из заголовков запроса страницы. Превышение/сбой хранилища → error.tsx.
+  const limited = await limitOrderRead(new Request("http://order.local/", { headers: await headers() }));
+  if (limited) throw new Error("orders.page: rate limited");
   return getOrderView({ number, token, ctx: await getOrderSessionContext() });
 }
 
@@ -34,13 +43,16 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
   const [{ number }, sp] = await Promise.all([params, searchParams]);
   if (!ORDER_NUMBER_RE.test(number)) notFound();
 
-  const result = await loadView(number, first(sp.t));
+  // Пустой ?t= — как неверный токен (404, как в API); токена в ссылке нет вовсе — доступ только владельцу/admin.
+  const rawToken = first(sp.t);
+  if (rawToken === "") notFound();
+  const result = await loadView(number, rawToken);
   if (result.kind !== "ok") notFound(); // нет заказа и неверный токен — один и тот же ответ (US-004, шаг 6)
 
   return (
     <OrderPageContent
       initial={result.view}
-      token={first(sp.t)}
+      token={rawToken}
       fromPayment={first(sp.from) === "payment"}
       botUsername={env.TELEGRAM_BOT_USERNAME}
     />
