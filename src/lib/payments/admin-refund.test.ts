@@ -3,7 +3,10 @@ import { after, afterEach, before, beforeEach, describe, it, mock } from "node:t
 import { FakeYookassa, type FakeRequest } from "@/lib/payments/__fixtures__/fake-yookassa";
 import { ORDER_ID, WHEEL_TITLE, type MemOrder } from "@/lib/payments/__fixtures__/memory-repo";
 import { makeWorld, type World } from "@/lib/payments/__fixtures__/world";
-import { RACE_LOSER_MESSAGE, createAdminRefundWith, type AdminRefundInput } from "@/lib/payments/admin-refund";
+import {
+  RACE_LOSER_MESSAGE, RESTOCK_DELIVERED_MESSAGE, RESTOCK_PARTIAL_MESSAGE, RESTOCK_PREORDER_MESSAGE, createAdminRefundWith,
+  type AdminRefundInput,
+} from "@/lib/payments/admin-refund";
 import { processPaymentObjectWith, processRefundObjectWith } from "@/lib/payments/process";
 import { reconcileStalePaymentsWith } from "@/lib/payments/reconcile";
 import { ADMIN_RETRYABLE_PREFIX } from "@/lib/payments/refund-refresh";
@@ -79,8 +82,8 @@ describe("ручной возврат: полный", () => {
 
   it("BR-17: restock только для stock и не delivered; restock = false — без restock", async () => {
     for (const [over, restock, expected] of [
-      [{ status: "delivered" }, true, []],
-      [{ kind: "preorder" }, true, []],
+      [{ status: "delivered" }, false, []],
+      [{ kind: "preorder" }, false, []],
       [{}, false, []],
       [{ status: "shipped" }, true, [ORDER_ID]],
     ] as const) {
@@ -90,6 +93,23 @@ describe("ручной возврат: полный", () => {
       assert.equal(res.kind === "ok" && res.data.restocked, expected.length > 0);
       assert.deepEqual(w.repo.restockCalls, expected, JSON.stringify(over));
     }
+  });
+
+  it("BR-17: restock = true для preorder / delivered / неполной суммы → restock_not_allowed до записи и ЮKassa", async () => {
+    for (const [over, amount, expected] of [
+      [{ kind: "preorder" }, FULL, { message: RESTOCK_PREORDER_MESSAGE, partial: false }],
+      [{ status: "delivered" }, FULL, { message: RESTOCK_DELIVERED_MESSAGE, partial: false }],
+      [{}, 1000000, { message: `${RESTOCK_PARTIAL_MESSAGE}: ${formatRub(FULL)}`, partial: true }],
+    ] as const) {
+      await paid(over);
+      assert.deepEqual(await refund({ amount, restock: true }), { kind: "restock_not_allowed", ...expected }, JSON.stringify(over));
+      assert.deepEqual([w.repo.refunds.length, refundPosts().length, w.repo.restockCalls.length], [0, 0, 0]);
+    }
+  });
+
+  it("BR-16 важнее BR-17: amount > refundable с restock = true → exceeds", async () => {
+    await paid({ kind: "preorder" });
+    assert.deepEqual(await refund({ amount: FULL + 1, restock: true }), { kind: "exceeds", refundable: FULL });
   });
 
   it("повторный клик после полного возврата → exceeds (0), второго возврата нет", async () => {
@@ -113,7 +133,7 @@ describe("ручной возврат: частичный (Edge Case 38) и BR-1
     w.notes.length = 0;
     fake.requests.length = 0;
 
-    const part = await refund({ amount: 3340000, reason: "Брак одного диска", restock: true });
+    const part = await refund({ amount: 3340000, reason: "Брак одного диска", restock: false });
     assert.ok(part.kind === "ok");
     assert.deepEqual([part.data.status, part.data.order_status, part.data.restocked, part.data.amount_formatted], ["succeeded", "paid", false, formatRub(3340000)]);
     assert.equal(order()?.status, "paid");
@@ -208,9 +228,9 @@ describe("ручной возврат: ошибки ЮKassa (Edge Case 40)", () 
     mock.method(console, "error", () => {});
     await paid();
     fake.interceptTimes(3, (r) => r.path === "/v3/refunds", { status: 500 });
-    await refund({ amount: 1000000 });
+    await refund({ amount: 1000000, restock: false });
     w.advance(23 * 3600_000);
-    const res = await refund({ amount: 1000000 });
+    const res = await refund({ amount: 1000000, restock: false });
     assert.ok(res.kind === "ok");
     assert.equal(w.repo.refunds.length, 2);
     assert.notEqual(res.data.refund_id, w.repo.refunds[0].id);
@@ -247,7 +267,7 @@ describe("ручной возврат: повторный клик и гонки
     const pay = w.repo.payments[0];
     await w.repo.insertRefund({ order_id: ORDER_ID, payment_id: pay.id, amount: 1000000, reason: "Первый клик", restock: false, created_by: ADMIN });
     w.advance(4 * 60_000);
-    assert.deepEqual(await refund({ amount: 1000000 }), { kind: "in_progress" });
+    assert.deepEqual(await refund({ amount: 1000000, restock: false }), { kind: "in_progress" });
     assert.equal(fake.requests.length, 0);
     assert.equal(w.repo.refunds.length, 1);
   });
@@ -268,7 +288,7 @@ describe("ручной возврат: повторный клик и гонки
 
   it("два одновременных запроса → в ЮKassa уходит один, второй отменён до отправки (in_progress)", async () => {
     await paid();
-    const [x, y] = await Promise.all([refund({ amount: 1000000 }), refund({ amount: 1000000 })]);
+    const [x, y] = await Promise.all([refund({ amount: 1000000, restock: false }), refund({ amount: 1000000, restock: false })]);
     assert.deepEqual([x.kind, y.kind].sort(), ["in_progress", "ok"]);
     assert.equal(refundPosts().length, 1);
     assert.deepEqual(w.repo.refunds.map((r) => r.status).sort(), ["canceled", "succeeded"]);
@@ -280,6 +300,68 @@ describe("ручной возврат: повторный клик и гонки
     w.repo.insertRefund = async () => ({ conflict: true as const });
     assert.deepEqual(await refund(), { kind: "conflict" });
     assert.equal(fake.requests.length, 0);
+  });
+});
+
+describe("ручной возврат: заказ pending_payment / cancelled — сначала сверка (опоздавший webhook)", () => {
+  it("в ЮKassa succeeded, webhook не дошёл → сверка: paid + уведомления, затем возврат → refunded", async () => {
+    w = makeWorld(fake);
+    const id = await w.newPayment();
+    fake.succeed(id, "sbp");
+    w.advance(61_000);
+    fake.requests.length = 0;
+    const res = await refund();
+    assert.ok(res.kind === "ok");
+    assert.equal(res.data.order_status, "refunded");
+    assert.deepEqual(w.templates(), ["admin_order_paid", "customer_order_paid", "customer_refund"]);
+    assert.deepEqual([fake.requests[0].method, fake.requests[0].path], ["GET", `/v3/payments/${id}`]); // сверка — до возврата
+    // Поздний webhook payment.succeeded после возврата: статус refunded не откатывается в paid, уведомлений нет.
+    assert.notEqual((await processPaymentObjectWith(w.deps, await w.yk.getPayment(id))).kind, "paid");
+    assert.equal(order()?.status, "refunded");
+  });
+
+  it("cancelled (бронь истекла), оплата прошла → сверка переводит в paid, возврат проходит (Edge Case 43)", async () => {
+    w = makeWorld(fake, { status: "cancelled" });
+    const id = await w.newPayment();
+    fake.succeed(id, "sbp");
+    w.advance(61_000);
+    const res = await refund({ restock: false });
+    assert.ok(res.kind === "ok");
+    assert.equal(order()?.status, "refunded");
+  });
+
+  it("строка payments succeeded, заказ не оплачен, сверка ещё не положена (60 с) → payment_unconfirmed без ЮKassa", async () => {
+    w = makeWorld(fake);
+    await w.newPayment();
+    w.repo.payments[0].status = "succeeded"; // сбой между обновлением payments и mark_order_paid
+    fake.requests.length = 0;
+    assert.deepEqual(await refund(), { kind: "payment_unconfirmed" });
+    assert.deepEqual([fake.requests.length, w.repo.refunds.length, order()?.status], [0, 0, "pending_payment"]);
+  });
+
+  it("сверка не уложилась в бюджет → payment_unconfirmed; возврат не создаётся", async () => {
+    mock.method(console, "error", () => {});
+    w = makeWorld(fake);
+    await w.newPayment();
+    const never = new Promise<never>(() => {});
+    const res = await createAdminRefundWith(w.deps, input(), { reconcile: () => never, reconcileBudgetMs: 20 });
+    assert.deepEqual(res, { kind: "payment_unconfirmed" });
+    assert.equal(w.repo.refunds.length, 0);
+  });
+
+  it("сверка бросила → тот же итог по БД: платёж pending → exceeds 0 (возвращать нечего)", async () => {
+    w = makeWorld(fake);
+    await w.newPayment();
+    const res = await createAdminRefundWith(w.deps, input(), { reconcile: async () => { throw new Error("boom"); } });
+    assert.deepEqual(res, { kind: "exceeds", refundable: 0 });
+  });
+
+  it("оплаченный заказ — сверка не вызывается", async () => {
+    await paid();
+    let called = 0;
+    const res = await createAdminRefundWith(w.deps, input(), { reconcile: async () => { called += 1; } });
+    assert.equal(res.kind, "ok");
+    assert.equal(called, 0);
   });
 });
 

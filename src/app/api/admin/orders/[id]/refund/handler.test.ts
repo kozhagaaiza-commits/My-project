@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import {
-  REFUND_CONFLICT_MESSAGE, REFUND_IN_PROGRESS_MESSAGE, REFUND_UNAVAILABLE_MESSAGE, createAdminRefundHandler, type AdminRefundDeps,
+  REFUND_CONFLICT_MESSAGE, REFUND_IN_PROGRESS_MESSAGE, REFUND_PAYMENT_UNCONFIRMED_MESSAGE, REFUND_UNAVAILABLE_MESSAGE,
+  createAdminRefundHandler, type AdminRefundDeps,
 } from "@/app/api/admin/orders/[id]/refund/handler";
 import { apiError } from "@/lib/api-error";
 import { formatRub } from "@/lib/money";
@@ -131,6 +132,20 @@ describe("POST /api/admin/orders/[id]/refund: ответы", () => {
     assert.deepEqual([b.status, await json(b)], [409, { error: { code: "CONFLICT", message: REFUND_CONFLICT_MESSAGE } }]);
     const c = await setup({ outcome: { kind: "not_found" } }).call(req());
     assert.deepEqual([c.status, await json(c)], [404, { error: { code: "NOT_FOUND", message: "Заказ не найден" } }]);
+  });
+
+  it("409 CONFLICT: оплата не подтверждена (заказ pending_payment / cancelled после сверки)", async () => {
+    const res = await setup({ outcome: { kind: "payment_unconfirmed" } }).call(req());
+    assert.deepEqual([res.status, await json(res)], [409, { error: { code: "CONFLICT", message: REFUND_PAYMENT_UNCONFIRMED_MESSAGE } }]);
+  });
+
+  it("400 VALIDATION_ERROR: restock вне BR-17; неполная сумма — ошибка и на поле amount", async () => {
+    const msg = "Заказ доставлен: товар на склад не возвращается";
+    const a = await setup({ outcome: { kind: "restock_not_allowed", message: msg, partial: false } }).call(req());
+    assert.deepEqual([a.status, await json(a)], [400, { error: { code: "VALIDATION_ERROR", message: msg, details: { fields: { restock: [msg] } } } }]);
+    const part = `Вернуть на склад можно только при возврате всей суммы: ${formatRub(13370000)}`;
+    const b = await setup({ outcome: { kind: "restock_not_allowed", message: part, partial: true } }).call(req());
+    assert.deepEqual([b.status, await json(b)], [400, { error: { code: "VALIDATION_ERROR", message: part, details: { fields: { restock: [part], amount: [part] } } } }]);
   });
 
   it("исключение (БД) → 500 INTERNAL_ERROR без стека", async () => {
