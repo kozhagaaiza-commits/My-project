@@ -3,139 +3,173 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Euphoria Karaoke — демо</title>
-<meta name="description" content="Демо-сайт караоке-клуба. Все данные примерные.">
+<title>Караоке Эйфория — Кызыл</title>
+<meta name="description" content="Почасовая аренда залов для караоке в Кызыле. Три зала до 25 человек, меню под ключ. Бронь: 8-923-388-90-90.">
 <style>
-:root{--bg:#0a0612;--card:#150d24;--line:#2a1c44;--text:#f3eefc;--muted:#a99cc4;--pink:#ff2ea6;--cyan:#27e6ff}
+:root{--bg:#0b0713;--bg2:#10091c;--card:#171024;--line:#2c1d48;--text:#f4effc;--muted:#a99cc4;--violet:#b33cff;--pink:#ff3ec8;--gold:#f2d9a6}
 *{box-sizing:border-box;margin:0}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:inherit;text-decoration:none}
 .wrap{max-width:1080px;margin:0 auto;padding:0 16px}
 .demo{background:#1d1233;color:var(--muted);font-size:13px;text-align:center;padding:6px 16px}
-header{position:sticky;top:0;z-index:5;background:rgba(10,6,18,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header{position:sticky;top:0;z-index:5;background:rgba(11,7,19,.88);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 header .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
-.logo{font-weight:800;letter-spacing:.04em;text-shadow:0 0 12px var(--pink)}
+.logo{font-weight:800;letter-spacing:.12em;color:#e9b6ff;text-shadow:0 0 14px var(--violet),0 0 30px var(--violet)}
 nav{display:flex;gap:20px;font-size:14px;color:var(--muted)}
-nav a:hover{color:var(--cyan)}
-.btn{display:inline-block;padding:12px 24px;border-radius:999px;font-weight:700;border:0;cursor:pointer;font-size:16px;
-background:var(--pink);color:#fff;box-shadow:0 0 22px rgba(255,46,166,.55);transition:transform .15s}
+nav a:hover{color:var(--pink)}
+.btn{display:inline-block;padding:12px 24px;border-radius:999px;font-weight:700;border:0;cursor:pointer;font-size:16px;font-family:inherit;
+background:linear-gradient(90deg,var(--violet),var(--pink));color:#fff;box-shadow:0 0 22px rgba(179,60,255,.55);transition:transform .15s}
 .btn:hover{transform:translateY(-2px)}
-.btn.ghost{background:transparent;border:1px solid var(--cyan);color:var(--cyan);box-shadow:0 0 14px rgba(39,230,255,.3)}
+.btn.ghost{background:transparent;border:1px solid var(--violet);color:#e9b6ff;box-shadow:0 0 14px rgba(179,60,255,.3)}
 .hero{padding:96px 0 80px;text-align:center;background:
-radial-gradient(600px 300px at 20% 0,rgba(255,46,166,.25),transparent),
-radial-gradient(600px 300px at 80% 20%,rgba(39,230,255,.2),transparent)}
-.hero h1{font-size:clamp(40px,9vw,88px);line-height:1.05;font-weight:900;letter-spacing:.02em;
-text-shadow:0 0 18px var(--pink),0 0 42px rgba(255,46,166,.5)}
-.hero h1 span{color:var(--cyan);text-shadow:0 0 18px var(--cyan)}
-.hero p{max-width:520px;margin:20px auto 32px;color:var(--muted);font-size:18px}
-.hero .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+radial-gradient(640px 320px at 18% 0,rgba(179,60,255,.32),transparent),
+radial-gradient(560px 300px at 85% 25%,rgba(255,62,200,.18),transparent)}
+.kicker{color:var(--gold);letter-spacing:.2em;font-size:13px;text-transform:uppercase}
+.hero h1{margin-top:10px;font-size:clamp(44px,10vw,96px);line-height:1.02;font-weight:900;letter-spacing:.04em;color:#f1c9ff;
+text-shadow:0 0 16px var(--violet),0 0 44px rgba(179,60,255,.7)}
+.hero p{max-width:540px;margin:20px auto 32px;color:var(--muted);font-size:18px}
+.row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.facts{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-top:44px;color:var(--muted);font-size:14px}
+.facts b{display:block;color:var(--text);font-size:20px}
 section{padding:72px 0}
+.alt{background:var(--bg2)}
 h2{font-size:clamp(26px,5vw,38px);margin-bottom:8px}
 .sub{color:var(--muted);margin-bottom:32px}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
-.card h3{margin-bottom:6px}
-.card .tag{color:var(--cyan);font-size:13px}
-.card .price{margin-top:14px;font-size:22px;font-weight:800;color:var(--pink)}
-.card p{color:var(--muted);font-size:14px}
-table{width:100%;border-collapse:collapse}
-td,th{padding:12px 8px;border-bottom:1px solid var(--line);text-align:left}
-td:last-child,th:last-child{text-align:right;color:var(--cyan);white-space:nowrap}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+.card h3{margin-bottom:4px;font-size:22px}
+.tag{color:var(--pink);font-size:14px}
+.price{margin-top:16px;font-size:28px;font-weight:800;color:#f1c9ff}
+.price small{font-size:14px;font-weight:400;color:var(--muted)}
+.promo{display:grid;gap:8px;border:1px solid var(--violet);border-radius:16px;padding:28px;background:linear-gradient(135deg,rgba(179,60,255,.18),rgba(255,62,200,.08))}
+.promo h3{color:var(--gold);font-size:26px}
+.promo p{color:var(--muted)}
 .cols{display:grid;gap:32px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-form{display:grid;gap:12px;max-width:520px}
+ol.steps{padding-left:20px;display:grid;gap:10px;color:var(--muted)}
+ol.steps b{color:var(--text)}
+.note{margin-top:20px;padding:14px 16px;border-left:3px solid var(--pink);background:var(--card);border-radius:8px;font-size:14px;color:var(--muted)}
+form{display:grid;gap:12px}
 label{font-size:13px;color:var(--muted);display:grid;gap:4px}
 input,select{background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px 12px;font:inherit}
-input:focus,select:focus{outline:2px solid var(--cyan)}
+input:focus,select:focus{outline:2px solid var(--violet)}
 .two{display:grid;gap:12px;grid-template-columns:1fr 1fr}
-#ok{display:none;color:var(--cyan);margin-top:4px}
-.q{font-style:italic}
-.q b{display:block;margin-top:10px;font-style:normal;color:var(--muted);font-size:14px;font-weight:400}
-footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-size:14px}
+#sum{display:none;background:var(--card);border:1px solid var(--violet);border-radius:12px;padding:16px;font-size:15px}
+#sum b{color:#f1c9ff}
+#sum .gift{color:var(--gold)}
+.contact{display:grid;gap:8px;font-size:18px}
+.contact a{color:#f1c9ff}
+footer{border-top:1px solid var(--line);padding:28px 0;color:var(--muted);font-size:14px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 @media(max-width:640px){nav{display:none}.hero{padding:64px 0 56px}section{padding:52px 0}}
 </style>
 </head>
 <body>
-<div class="demo">Демо-версия: адрес, цены и отзывы — примерные, не реальные данные заведения</div>
+<div class="demo">Демо-сайт на основе страницы заведения в Instagram. Форма не отправляет заявки.</div>
 <header><div class="wrap">
 <a class="logo" href="#top">EUPHORIA</a>
-<nav><a href="#rooms">Залы</a><a href="#prices">Цены</a><a href="#menu">Меню</a><a href="#reviews">Отзывы</a><a href="#book">Бронь</a></nav>
+<nav><a href="#halls">Залы</a><a href="#promo">Акция</a><a href="#menu">Меню</a><a href="#book">Бронь</a><a href="#contacts">Контакты</a></nav>
 <a class="btn" href="#book" style="padding:8px 18px;font-size:14px">Забронировать</a>
 </div></header>
 
 <main id="top">
 <div class="hero"><div class="wrap">
-<h1>Пой.<br><span>Живи.</span> Euphoria.</h1>
-<p>Караоке-клуб с отдельными залами, 30&nbsp;000 песен и хорошим звуком. Приходите компанией — остальное мы берём на себя.</p>
-<div class="row"><a class="btn" href="#book">Забронировать зал</a><a class="btn ghost" href="#prices">Посмотреть цены</a></div>
+<div class="kicker">Кызыл · Почасовая аренда залов</div>
+<h1>КАРАОКЕ<br>ЭЙФОРИЯ</h1>
+<p>Три зала на 15, 20 и 25 человек. Приходите компанией, а меню мы соберём «под ключ».</p>
+<div class="row"><a class="btn" href="#book">Забронировать зал</a><a class="btn ghost" href="#halls">Залы и цены</a></div>
+<div class="facts">
+<div><b>3 зала</b>до 25 человек</div>
+<div><b>от 2 000 ₽</b>за час</div>
+<div><b>5-й час</b>в подарок при брони 4 часов</div>
+</div>
 </div></div>
 
-<section id="rooms"><div class="wrap">
-<h2>Залы</h2><p class="sub">Выберите комнату под размер компании</p>
+<section id="halls"><div class="wrap">
+<h2>Залы и цены</h2><p class="sub">Аренда почасовая. Выберите зал под размер компании.</p>
 <div class="grid">
-<div class="card"><span class="tag">до 6 гостей</span><h3>Mini</h3><p>Уютная комната для небольшой компании, 2 микрофона.</p><div class="price">от 800 ₽/час</div></div>
-<div class="card"><span class="tag">до 12 гостей</span><h3>Neon</h3><p>Светомузыка, большой экран, 3 микрофона, диван-ложе.</p><div class="price">от 1 400 ₽/час</div></div>
-<div class="card"><span class="tag">до 25 гостей</span><h3>VIP Stage</h3><p>Мини-сцена, живой свет, звук, отдельная зона для столов.</p><div class="price">от 2 600 ₽/час</div></div>
-</div></div></section>
-
-<section id="prices" style="background:#0e0819"><div class="wrap cols">
-<div><h2>Цены</h2><p class="sub">Примерная сетка, уточняйте при брони</p>
-<table>
-<tr><th>Время</th><th>Mini</th><th>Neon</th></tr>
-<tr><td>Будни, 12:00–18:00</td><td>800 ₽</td><td>1 400 ₽</td></tr>
-<tr><td>Будни, с 18:00</td><td>1 100 ₽</td><td>1 900 ₽</td></tr>
-<tr><td>Пт–Сб, с 18:00</td><td>1 500 ₽</td><td>2 400 ₽</td></tr>
-</table></div>
-<div id="menu"><h2>Меню</h2><p class="sub">Кухня и бар</p>
-<table>
-<tr><td>Сет закусок на компанию</td><td>1 200 ₽</td></tr>
-<tr><td>Пицца 30 см</td><td>550 ₽</td></tr>
-<tr><td>Крылья BBQ, 8 шт.</td><td>480 ₽</td></tr>
-<tr><td>Лимонад домашний, 1 л</td><td>350 ₽</td></tr>
-<tr><td>Коктейль по меню бара</td><td>от 400 ₽</td></tr>
-</table></div>
+<div class="card"><span class="tag">до 15 человек</span><h3>Малый зал</h3><div class="price">2 000 ₽ <small>/ час</small></div></div>
+<div class="card"><span class="tag">до 20 человек</span><h3>Средний зал</h3><div class="price">2 500 ₽ <small>/ час</small></div></div>
+<div class="card"><span class="tag">до 25 человек</span><h3>Большой зал</h3><div class="price">3 000 ₽ <small>/ час</small></div></div>
+</div>
 </div></section>
 
-<section id="reviews"><div class="wrap">
-<h2>Отзывы</h2><p class="sub">Примеры текстов для макета</p>
-<div class="grid">
-<div class="card q">«Отмечали день рождения в Neon — звук отличный, персонал шустрый.»<b>Анна</b></div>
-<div class="card q">«Большая база песен, нашли всё, что искали. Придём ещё.»<b>Максим</b></div>
-<div class="card q">«VIP Stage для корпоратива подошёл идеально.»<b>Ольга</b></div>
-</div></div></section>
+<section id="promo" class="alt"><div class="wrap">
+<div class="promo">
+<h3>Акция</h3>
+<p>При бронировании 4 часов пятый час дарим в подарок.</p>
+<p>При продлении на месте акция не распространяется.</p>
+</div>
+</div></section>
 
-<section id="book" style="background:#0e0819"><div class="wrap">
-<h2>Забронировать зал</h2><p class="sub">Заявка уйдёт администратору, он подтвердит по телефону</p>
+<section id="menu"><div class="wrap">
+<h2>Меню под ключ</h2>
+<p class="sub">Заказываете заранее, к вашему приходу стол накрыт: подходит для дней рождения и корпоративов. Состав и стоимость уточняйте у администратора по телефону.</p>
+<a class="btn ghost" href="tel:+79233889090">Узнать меню: 8-923-388-90-90</a>
+</div></section>
+
+<section id="book" class="alt"><div class="wrap cols">
+<div>
+<h2>Условия бронирования</h2><p class="sub">Чтобы забронировать, сообщите:</p>
+<ol class="steps">
+<li><b>Зал:</b> большой, средний или малый</li>
+<li><b>Дату</b> и точное время</li>
+<li><b>Номер телефона</b> и имя, на кого бронировать</li>
+</ol>
+<div class="note"><b style="color:var(--text)">Бронь по предоплате: 50% от стоимости.</b><br>
+Если залог не внесён, администрация вправе снять бронь без предупреждения.</div>
+</div>
+<div>
+<h2>Рассчитать</h2><p class="sub">Стоимость и предоплата</p>
 <form id="f">
-<label>Имя<input name="name" required minlength="2" placeholder="Как к вам обращаться"></label>
-<label>Телефон<input name="phone" type="tel" required pattern="[0-9+()\s\-]{10,}" placeholder="+7 900 000-00-00"></label>
+<label>Имя<input name="name" required minlength="2" placeholder="На кого бронировать"></label>
+<label>Телефон<input name="phone" type="tel" required pattern="[0-9+()\s\-]{10,}" placeholder="8 900 000-00-00"></label>
 <div class="two">
 <label>Дата<input name="date" type="date" required></label>
-<label>Время<input name="time" type="time" required value="19:00"></label>
+<label>Время начала<input name="time" type="time" required value="19:00"></label>
 </div>
 <div class="two">
-<label>Зал<select name="room"><option>Mini</option><option>Neon</option><option>VIP Stage</option></select></label>
-<label>Гостей<input name="guests" type="number" min="1" max="25" value="6" required></label>
+<label>Зал<select name="room" id="room">
+<option value="2000">Малый зал (до 15)</option>
+<option value="2500">Средний зал (до 20)</option>
+<option value="3000">Большой зал (до 25)</option></select></label>
+<label>Часов<input name="hours" id="hours" type="number" min="1" max="12" value="3" required></label>
 </div>
-<button class="btn" type="submit">Отправить заявку</button>
-<div id="ok">Заявка принята. Мы позвоним для подтверждения.</div>
+<button class="btn" type="submit">Рассчитать стоимость</button>
+<div id="sum" role="status"></div>
 </form>
+</div>
+</div></section>
+
+<section id="contacts"><div class="wrap">
+<h2>Контакты</h2><p class="sub">Бронь и вопросы по телефону</p>
+<div class="contact">
+<a href="tel:+79233889090">8-923-388-90-90</a>
+<div>г. Кызыл, ул. Кечил-оола, 7В</div>
+<a href="https://www.instagram.com/euphoria_karaoke_kzl" rel="noopener">Instagram: @euphoria_karaoke_kzl</a>
+</div>
 </div></section>
 </main>
 
 <footer><div class="wrap">
-<div><b style="color:var(--text)">Euphoria Karaoke</b><br>Адрес: уточняется · Ежедневно 12:00–03:00 (пример)</div>
-<div>Instagram · 2ГИС · Телефон: +7 000 000-00-00</div>
+<div><b style="color:var(--text)">Караоке Эйфория | Кызыл</b></div>
+<div>Демо-сайт</div>
 </div></footer>
 
 <script>
+var rub=function(n){return n.toLocaleString('ru-RU')+' ₽'};
 var d=document.querySelector('input[type=date]');
 d.min=d.value=new Date().toISOString().slice(0,10);
 document.getElementById('f').addEventListener('submit',function(e){
   e.preventDefault();
-  document.getElementById('ok').style.display='block';
-  e.target.reset();d.value=d.min;
+  var price=+document.getElementById('room').value;
+  var hours=+document.getElementById('hours').value;
+  var total=price*hours;
+  var gift=hours===4?'<div class="gift">Акция: 5-й час в подарок, всего 5 часов.</div>':'';
+  var s=document.getElementById('sum');
+  s.innerHTML='Стоимость: <b>'+rub(total)+'</b><br>Предоплата 50%: <b>'+rub(total/2)+'</b>'+gift+
+    '<br>Для брони позвоните: <a href="tel:+79233889090"><b>8-923-388-90-90</b></a>';
+  s.style.display='block';
 });
 </script>
 </body>
