@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Караоке Эйфория — Кызыл</title>
 <meta name="description" content="Почасовая аренда залов для караоке в Кызыле. Три зала до 25 человек, меню под ключ. Бронь: 8-923-388-90-90.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap&subset=cyrillic" rel="stylesheet">
 <style>
 :root{--bg:#12061f;--plum:#3a1240;--card:#1b0f2b;--line:rgba(255,120,200,.35);--text:#f6eefc;--muted:#c3b0d8;--pink:#ff4fa8;--rose:#f27ab0;--violet:#8a3cff;--blue:#2a3cff;--gold:#f2d9a6}
 *{box-sizing:border-box;margin:0}
@@ -24,8 +27,8 @@ button{font-family:inherit}
 .nav{margin:18px auto 0;max-width:1080px;padding:0 16px;position:relative;z-index:10}
 .pill{display:flex;align-items:center;gap:28px;height:64px;padding:0 20px 0 12px;border:1px solid var(--line);border-radius:999px;
 background:rgba(255,255,255,.04);backdrop-filter:blur(10px)}
-.logo{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:20px;color:#fff;
-background:linear-gradient(135deg,var(--violet),var(--pink));box-shadow:0 0 16px rgba(255,79,168,.6)}
+.logo{width:46px;height:46px;display:block;filter:drop-shadow(0 0 6px rgba(255,79,168,.8))}
+.logo svg,.badge svg{width:100%;height:100%}
 .links{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--muted);flex:1}
 .links a{padding:7px 16px;border-radius:999px;border:1px solid transparent}
 .links a:hover{color:#fff}
@@ -78,7 +81,12 @@ conic-gradient(from 200deg at 50% -10%,transparent 0 10%,rgba(255,255,255,.22) 1
 .show .info b{display:block;font-size:24px}
 .show .info span{color:var(--muted);font-size:14px}
 .show .info em{display:block;font-style:normal;margin-top:6px;font-size:22px;font-weight:800;color:#ffd0ea}
-.play{position:absolute;top:30px;right:30px;width:42px;height:42px;border-radius:50%;background:#fff;display:grid;place-items:center;z-index:3}
+.zoom{position:absolute;top:30px;right:30px;width:42px;height:42px;border-radius:50%;background:#fff;border:0;cursor:zoom-in;display:grid;place-items:center;z-index:3}
+.show .it:not(.pos-c) .zoom{display:none}
+#lb{position:fixed;inset:0;z-index:50;background:rgba(10,3,20,.92);display:none;align-items:center;justify-content:center;padding:24px;cursor:zoom-out}
+#lb.on{display:flex}
+#lb img{max-width:100%;max-height:100%;border-radius:20px;box-shadow:0 0 60px rgba(179,60,255,.5)}
+#lb button{position:absolute;top:18px;right:18px;width:44px;height:44px;border-radius:50%;border:0;background:#fff;font-size:22px;cursor:pointer}
 .all{display:flex;flex-direction:column;align-items:center;gap:12px;margin:-4px 0 28px;position:relative;z-index:4}
 .chev{width:26px;height:26px;border-radius:50%;background:#fff;display:grid;place-items:center}
 
@@ -94,8 +102,9 @@ conic-gradient(from 200deg at 50% -10%,transparent 0 10%,rgba(255,255,255,.22) 1
 .sw .pos-l{left:6cqw;top:30cqw;width:24cqw;height:30cqw;transform:rotate(-38deg);opacity:.8;z-index:2;filter:brightness(.85)}
 .sw .pos-r{left:70cqw;top:30cqw;width:24cqw;height:30cqw;transform:rotate(38deg);opacity:.8;z-index:2;filter:brightness(.85)}
 .sw .lbl{position:absolute;left:0;right:0;bottom:12px;text-align:center;font-weight:700;font-size:3.2cqw;text-shadow:0 2px 8px rgba(0,0,0,.6);z-index:2}
-.sw .badge{position:absolute;left:50%;bottom:-6cqw;width:12cqw;height:12cqw;transform:translateX(-50%);border-radius:50%;z-index:4;display:grid;place-items:center;
-font-weight:800;font-size:6cqw;color:#fff;background:linear-gradient(135deg,var(--violet),var(--blue));border:4px solid #7c8cff;box-shadow:0 0 24px rgba(90,110,255,.7)}
+.sw .badge{position:absolute;left:50%;bottom:-7cqw;width:14cqw;height:14cqw;transform:translateX(-50%);z-index:4;filter:drop-shadow(0 0 10px rgba(255,79,168,.85));animation:spin 14s linear infinite}
+@keyframes spin{to{transform:translateX(-50%) rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sw .badge{animation:none}}
 .swwrap{padding-bottom:7cqw}
 .pick{text-align:center;margin:44px 0 0}
 .pick h3{font-size:26px}
@@ -138,14 +147,25 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .show .pos-l,.show .pos-r{width:170px;height:250px;top:100px}
 section{padding:48px 0}
 }
-.show .ph,.sw .ph{background-size:cover;background-position:50% 60%}
+.hero-img .ph,.show .ph,.sw .ph{background-size:cover;background-position:50% 60%}
 </style>
 </head>
 <body>
-<div class="demo">Демо-сайт на основе страницы заведения в Instagram. Картинки залов — заглушки, форма не отправляет заявки.</div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<radialGradient id="dg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#3a1068"/><stop offset="1" stop-color="#150726"/></radialGradient>
+<symbol id="disc" viewBox="0 0 100 100">
+<circle cx="50" cy="50" r="46" fill="url(#dg)" stroke="#ff4fa8" stroke-width="3"/>
+<circle cx="50" cy="50" r="36" fill="none" stroke="#b33cff" stroke-width="1.6" opacity=".9"/>
+<circle cx="50" cy="50" r="27" fill="none" stroke="#ff4fa8" stroke-width="1.2" opacity=".7"/>
+<circle cx="50" cy="50" r="18" fill="none" stroke="#b33cff" stroke-width="1" opacity=".7"/>
+<path d="M18 36 A36 36 0 0 1 42 15" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".75"/>
+<path d="M82 64 A36 36 0 0 1 58 85" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".45"/>
+<circle cx="50" cy="50" r="7" fill="#12061f" stroke="#ff4fa8" stroke-width="2"/>
+</symbol></defs></svg>
+<div class="demo">Демо-сайт на основе страницы заведения в Instagram. Форма не отправляет заявки.</div>
 
 <div class="nav"><div class="pill">
-<a class="logo" href="#top">Э</a>
+<a class="logo" href="#top" aria-label="Эйфория"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#disc"/></svg></a>
 <div class="links" id="links">
 <a href="#top">Главная</a><a href="#halls">Залы</a><a href="#promo">Акция</a><a href="#menu">Меню</a><a class="on" href="#book">Бронь</a><a href="#contacts">Контакты</a>
 </div>
@@ -161,7 +181,7 @@ section{padding:48px 0}
 <p>Три зала на 15, 20 и 25 человек. Приходите компанией, а меню под ключ мы соберём заранее. При брони 4 часов пятый час в подарок.</p>
 <a class="btn" href="#book">Забронировать<span class="c"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#12061f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></a>
 </div>
-<div class="hero-img"><div class="art a0" style="position:absolute;inset:0;border-radius:44px;border:1px solid var(--line)"></div></div>
+<div class="hero-img"><div class="art ph a2" role="img" aria-label="Большой зал" style="position:absolute;inset:0;border-radius:44px;border:1px solid var(--line);background-image:url(img/hall-large.jpg)"></div></div>
 </div>
 
 <div id="halls">
@@ -173,7 +193,7 @@ section{padding:48px 0}
 </div>
 
 <section style="padding-top:24px" id="switch"><div class="wrap">
-<div class="swwrap"><div class="sw" id="sw"><div class="disc"></div><div class="ring"></div><span class="badge">Э</span></div></div>
+<div class="swwrap"><div class="sw" id="sw"><div class="disc"></div><div class="ring"></div><span class="badge"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#disc"/></svg></span></div></div>
 <div class="pick">
 <h3 id="pName"></h3>
 <p id="pInfo"></p>
@@ -248,13 +268,13 @@ var halls=[
 ];
 var idx=1;
 var rub=function(n){return n.toLocaleString('ru-RU')+' ₽'};
-var PLAY='<span class="play"><svg width="14" height="14" viewBox="0 0 24 24" fill="#12061f"><path d="M7 4l13 8-13 8z"/></svg></span>';
+var ZOOM='<button type="button" class="zoom" aria-label="Увеличить фото"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#12061f" stroke-width="2.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg></button>';
 
 function build(){
   var show=document.getElementById('show'),sw=document.getElementById('sw'),room=document.getElementById('room');
   halls.forEach(function(h,i){
     var a=document.createElement('div');a.className='it art '+h.art;a.dataset.i=i;if(h.img){a.classList.add('ph');a.style.backgroundImage='url('+h.img+')';}
-    a.innerHTML=PLAY+'<div class="info"><b>'+h.name+'</b><span>до '+h.cap+' человек</span><em>'+rub(h.price)+' / час</em></div>';
+    a.innerHTML=ZOOM+'<div class="info"><b>'+h.name+'</b><span>до '+h.cap+' человек</span><em>'+rub(h.price)+' / час</em></div>';
     show.appendChild(a);
     var b=document.createElement('div');b.className='it art '+h.art;b.dataset.i=i;if(h.img){b.classList.add('ph');b.style.backgroundImage='url('+h.img+')';}b.setAttribute('role','button');b.setAttribute('aria-label',h.name);
     b.innerHTML='<div class="lbl">'+h.name.split(' ')[0]+'</div>';
@@ -294,6 +314,17 @@ document.getElementById('f').addEventListener('submit',function(e){
   s.innerHTML='Стоимость: <b>'+rub(total)+'</b><br>Предоплата 50%: <b>'+rub(total/2)+'</b>'+gift+
     '<br>Для брони позвоните: <a href="tel:+79233889090"><b>8-923-388-90-90</b></a>';
   s.style.display='block';
+});
+var lb=document.createElement('div');lb.id='lb';lb.innerHTML='<button type="button" aria-label="Закрыть">×</button><img alt="">';document.body.appendChild(lb);
+function closeLb(){lb.classList.remove('on');}
+lb.addEventListener('click',closeLb);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();});
+document.querySelectorAll('.zoom').forEach(function(z){
+  z.addEventListener('click',function(e){
+    e.stopPropagation();
+    var h=halls[+z.parentNode.dataset.i];
+    var im=lb.querySelector('img');im.src=h.img;im.alt=h.name;lb.classList.add('on');
+  });
 });
 </script>
 </body>
