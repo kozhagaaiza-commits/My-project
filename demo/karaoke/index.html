@@ -63,6 +63,8 @@ conic-gradient(from 200deg at 50% -10%,transparent 0 10%,rgba(255,255,255,.22) 1
 .art::after{content:"";position:absolute;left:-10%;right:-10%;bottom:-8%;height:38%;background:rgba(10,3,20,.55);border-radius:50% 50% 0 0/100% 100% 0 0}
 .a0{background:radial-gradient(60% 40% at 50% 28%,#ffb0d6,transparent),linear-gradient(180deg,#5b2a8a,#c0397f 60%,#2a0f45)}
 .a1{background:radial-gradient(60% 40% at 50% 28%,#b8c4ff,transparent),linear-gradient(180deg,#2b2f9a,#8a3cff 60%,#1a0a3a)}
+.ph::before{display:none}
+.ph::after{left:0;right:0;bottom:0;height:55%;border-radius:0;background:linear-gradient(180deg,transparent,rgba(10,3,20,.85))}
 .a2{background:radial-gradient(60% 40% at 50% 28%,#ffd9a0,transparent),linear-gradient(180deg,#7a2a62,#ff4f7a 60%,#2a0f2a)}
 
 /* карусель: pos-c / pos-l / pos-r */
@@ -136,6 +138,7 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .show .pos-l,.show .pos-r{width:170px;height:250px;top:100px}
 section{padding:48px 0}
 }
+.show .ph,.sw .ph{background-size:cover;background-position:50% 60%}
 </style>
 </head>
 <body>
@@ -241,7 +244,7 @@ section{padding:48px 0}
 var halls=[
  {name:'Малый зал',cap:15,price:2000,art:'a0'},
  {name:'Средний зал',cap:20,price:2500,art:'a1'},
- {name:'Большой зал',cap:25,price:3000,art:'a2'}
+ {name:'Большой зал',cap:25,price:3000,art:'a2',img:'img/hall-large.jpg'}
 ];
 var idx=1;
 var rub=function(n){return n.toLocaleString('ru-RU')+' ₽'};
@@ -250,10 +253,10 @@ var PLAY='<span class="play"><svg width="14" height="14" viewBox="0 0 24 24" fil
 function build(){
   var show=document.getElementById('show'),sw=document.getElementById('sw'),room=document.getElementById('room');
   halls.forEach(function(h,i){
-    var a=document.createElement('div');a.className='it art '+h.art;a.dataset.i=i;
+    var a=document.createElement('div');a.className='it art '+h.art;a.dataset.i=i;if(h.img){a.classList.add('ph');a.style.backgroundImage='url('+h.img+')';}
     a.innerHTML=PLAY+'<div class="info"><b>'+h.name+'</b><span>до '+h.cap+' человек</span><em>'+rub(h.price)+' / час</em></div>';
     show.appendChild(a);
-    var b=document.createElement('div');b.className='it art '+h.art;b.dataset.i=i;b.setAttribute('role','button');b.setAttribute('aria-label',h.name);
+    var b=document.createElement('div');b.className='it art '+h.art;b.dataset.i=i;if(h.img){b.classList.add('ph');b.style.backgroundImage='url('+h.img+')';}b.setAttribute('role','button');b.setAttribute('aria-label',h.name);
     b.innerHTML='<div class="lbl">'+h.name.split(' ')[0]+'</div>';
     sw.appendChild(b);
     var o=document.createElement('option');o.value=i;o.textContent=h.name+' (до '+h.cap+')';room.appendChild(o);
